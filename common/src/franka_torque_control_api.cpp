@@ -3,17 +3,13 @@
 
 #include "franka_torque_control_api.h"
 
-#include <chrono>
 #include <iostream>
 
 // ============================================================================
 // Constructor / Destructor
 // ============================================================================
 
-FrankaTorqueControlContext::FrankaTorqueControlContext() {
-    // Initialize torques to zero
-    tau_J_d_.fill(0.0);
-}
+FrankaTorqueControlContext::FrankaTorqueControlContext() = default;
 
 FrankaTorqueControlContext::~FrankaTorqueControlContext() {
     shutdown();
@@ -27,47 +23,45 @@ void FrankaTorqueControlContext::initialize(const std::string& robot_ip) {
     robot_ip_ = robot_ip;
     
     try {
-        // Connect to robot
         robot_ = std::make_unique<franka::Robot>(robot_ip_);
         
         // Attempt automatic error recovery
         try {
             robot_->automaticErrorRecovery();
-        } catch (const franka::Exception& e) {
-            // Robot might already be in good state, continue
+        } catch (const franka::Exception&) {
+            // Robot might already be in good state
         }
         
-        // Load model
         model_ = std::make_unique<franka::Model>(robot_->loadModel());
         
-        state_ = FrankaControlState::Idle;
-        
     } catch (const franka::Exception& e) {
-        std::lock_guard<std::mutex> lock(error_mutex_);
-        error_message_ = std::string("Failed to connect to robot: ") + e.what();
-        state_ = FrankaControlState::Error;
+        std::cerr << "Failed to connect to robot: " << e.what() << std::endl;
+        throw;
     }
 }
 
+void FrankaTorqueControlContext::setControllerCallback(ControllerCallback callback) {
+    controller_callback_ = callback;
+}
+
+void FrankaTorqueControlContext::setOutputPointers(double* q_ptr, double* dq_ptr) {
+    q_out_ = q_ptr;
+    dq_out_ = dq_ptr;
+}
+
+void FrankaTorqueControlContext::setInputPointers(const double* tau_J_d_ptr) {
+    tau_J_d_in_ = tau_J_d_ptr;
+}
+
 void FrankaTorqueControlContext::shutdown() {
-    // Request stop if running
-    if (state_ == FrankaControlState::Running) {
-        stopControl();
+    if (running_) {
+        requestStop();
     }
     
-    // Wait for control thread to finish
     if (control_thread_.joinable()) {
-        // Signal to unblock any waiting
-        {
-            std::lock_guard<std::mutex> lock(sync_mutex_);
-            command_ready_ = true;
-        }
-        cv_command_ready_.notify_one();
-        
         control_thread_.join();
     }
     
-    // Release robot connection
     model_.reset();
     robot_.reset();
 }
@@ -77,111 +71,27 @@ void FrankaTorqueControlContext::shutdown() {
 // ============================================================================
 
 void FrankaTorqueControlContext::startControl() {
-    if (state_ != FrankaControlState::Idle) {
-        return;  // Already running or in error state
-    }
-    
-    if (!robot_) {
-        std::lock_guard<std::mutex> lock(error_mutex_);
-        error_message_ = "Robot not initialized";
-        state_ = FrankaControlState::Error;
+    if (running_) {
         return;
     }
     
-    // Reset state
     stop_requested_ = false;
-    first_control_step_ = true;
-    state_ready_ = false;
-    command_ready_ = false;
-    tau_J_d_.fill(0.0);
+    first_step_ = true;
+    running_ = true;
     
-    // Clear any previous error
-    {
-        std::lock_guard<std::mutex> lock(error_mutex_);
-        error_message_.clear();
-    }
-    
-    state_ = FrankaControlState::Running;
-    
-    // Spawn control thread
     control_thread_ = std::thread(&FrankaTorqueControlContext::controlThreadFunc, this);
 }
 
-void FrankaTorqueControlContext::stopControl() {
-    if (state_ != FrankaControlState::Running) {
-        return;
-    }
-    
-    state_ = FrankaControlState::Stopping;
+void FrankaTorqueControlContext::requestStop() {
     stop_requested_ = true;
-    
-    // Unblock control thread if waiting for command
-    {
-        std::lock_guard<std::mutex> lock(sync_mutex_);
-        command_ready_ = true;
-    }
-    cv_command_ready_.notify_one();
-    
-    // Wait for control thread to finish
-    if (control_thread_.joinable()) {
-        control_thread_.join();
-    }
-    
-    state_ = FrankaControlState::Idle;
 }
 
 bool FrankaTorqueControlContext::isControlRunning() const {
-    return state_ == FrankaControlState::Running;
-}
-
-bool FrankaTorqueControlContext::hasError() const {
-    return state_ == FrankaControlState::Error;
-}
-
-std::string FrankaTorqueControlContext::getErrorMessage() const {
-    std::lock_guard<std::mutex> lock(error_mutex_);
-    return error_message_;
+    return running_;
 }
 
 // ============================================================================
-// Synchronization Methods
-// ============================================================================
-
-void FrankaTorqueControlContext::waitForControlStep() {
-    std::unique_lock<std::mutex> lock(sync_mutex_);
-    cv_state_ready_.wait(lock, [this] { return state_ready_ || stop_requested_; });
-    state_ready_ = false;
-}
-
-void FrankaTorqueControlContext::signalControlContinue() {
-    {
-        std::lock_guard<std::mutex> lock(sync_mutex_);
-        command_ready_ = true;
-    }
-    cv_command_ready_.notify_one();
-}
-
-// ============================================================================
-// Data Access Methods
-// ============================================================================
-
-void FrankaTorqueControlContext::getJointPositions(double* q) const {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    std::copy(robot_state_.q.begin(), robot_state_.q.end(), q);
-}
-
-void FrankaTorqueControlContext::getJointVelocities(double* dq) const {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    std::copy(robot_state_.dq.begin(), robot_state_.dq.end(), dq);
-}
-
-void FrankaTorqueControlContext::setJointTorques(const double* tau_J_d) {
-    std::lock_guard<std::mutex> lock(command_mutex_);
-    std::copy(tau_J_d, tau_J_d + 7, tau_J_d_.begin());
-}
-
-// ============================================================================
-// Control Thread Implementation
+// Control Thread
 // ============================================================================
 
 void FrankaTorqueControlContext::controlThreadFunc() {
@@ -195,73 +105,51 @@ void FrankaTorqueControlContext::controlThreadFunc() {
             /*cutoff_frequency=*/100.0
         );
     } catch (const franka::Exception& e) {
-        std::lock_guard<std::mutex> lock(error_mutex_);
-        error_message_ = e.what();
-        state_ = FrankaControlState::Error;
-        
-        // Unblock Simulink thread if waiting
-        {
-            std::lock_guard<std::mutex> sync_lock(sync_mutex_);
-            state_ready_ = true;
-        }
-        cv_state_ready_.notify_one();
+        std::cerr << "Control exception: " << e.what() << std::endl;
     }
     
-    // If we exit normally (not error), set to idle
-    if (state_ != FrankaControlState::Error) {
-        state_ = FrankaControlState::Idle;
-    }
+    running_ = false;
 }
 
 franka::Torques FrankaTorqueControlContext::controlCallback(
-    const franka::RobotState& state, 
+    const franka::RobotState& state,
     franka::Duration period) {
     
     // Check for stop request
     if (stop_requested_) {
-        // Return zero torques and signal motion finished
         return franka::MotionFinished(franka::Torques({0, 0, 0, 0, 0, 0, 0}));
     }
     
-    // Update robot state (thread-safe)
-    {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        robot_state_ = state;
+    // ========================================================================
+    // Step 1: Copy robot state to Simulink outputs
+    // ========================================================================
+    if (q_out_) {
+        std::copy(state.q.begin(), state.q.end(), q_out_);
+    }
+    if (dq_out_) {
+        std::copy(state.dq.begin(), state.dq.end(), dq_out_);
     }
     
-    // Skip synchronization on first step (no torques computed yet)
-    if (first_control_step_) {
-        first_control_step_ = false;
-        // Return zero torques for first step
+    // Skip controller on first step
+    if (first_step_) {
+        first_step_ = false;
         return franka::Torques({0, 0, 0, 0, 0, 0, 0});
     }
     
-    // Signal Simulink that new state is ready
-    {
-        std::lock_guard<std::mutex> lock(sync_mutex_);
-        state_ready_ = true;
-    }
-    cv_state_ready_.notify_one();
-    
-    // Wait for Simulink to compute and set torques
-    {
-        std::unique_lock<std::mutex> lock(sync_mutex_);
-        cv_command_ready_.wait(lock, [this] { return command_ready_ || stop_requested_; });
-        command_ready_ = false;
+    // ========================================================================
+    // Step 2: Execute the controller (function-call subsystem)
+    // ========================================================================
+    if (controller_callback_) {
+        controller_callback_();
     }
     
-    // Check again for stop request
-    if (stop_requested_) {
-        return franka::MotionFinished(franka::Torques({0, 0, 0, 0, 0, 0, 0}));
-    }
-    
-    // Get commanded torques (thread-safe)
-    std::array<double, 7> tau_cmd;
-    {
-        std::lock_guard<std::mutex> lock(command_mutex_);
-        tau_cmd = tau_J_d_;
+    // ========================================================================
+    // Step 3: Read computed torques from Simulink input
+    // ========================================================================
+    std::array<double, 7> tau_cmd{};
+    if (tau_J_d_in_) {
+        std::copy(tau_J_d_in_, tau_J_d_in_ + 7, tau_cmd.begin());
     }
     
     return franka::Torques(tau_cmd);
 }
-

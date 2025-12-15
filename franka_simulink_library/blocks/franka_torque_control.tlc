@@ -1,8 +1,10 @@
 %%  Copyright (c) 2025 Franka Robotics GmbH
 %%  Franka Torque Control Block - TLC Implementation
 %%
-%%  This TLC file generates code for the Franka robot torque control block
-%%  with function-call subsystem triggering.
+%%  This TLC generates code where the libfranka control callback
+%%  directly executes the function-call subsystem (user's controller).
+%%
+%%  robot_ip is provided via input port 1 (not as a parameter).
 %%
 %implements "franka_torque_control" "C"
 
@@ -15,17 +17,43 @@
 
 %% ========================================================================
 %% BlockInstanceSetup - Called once per block instance
+%% Declares global variables and the controller callback function
 %% ========================================================================
 %function BlockInstanceSetup(block, system) Output
 {
-    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
-    %assign robot_id = FEVAL("strtrim", robot_id)
+    %% Use block identifier for unique naming (sanitized for C identifier)
+    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
     
-    %% Declare global instance of the control context
+    %% Generate unique callback function name
+    %assign fcn_name = "franka_controller_step_%<block_id>"
+    
     %openfile buffer
-    FrankaTorqueControlContext franka_ctx_%<robot_id>;
+    
+    /* Franka Torque Control Context for block %<block_id> */
+    FrankaTorqueControlContext franka_ctx_%<block_id>;
+    
+    /* Forward declaration of controller callback */
+    void %<fcn_name>(void);
+    
     %closefile buffer
     %<LibCacheGlobalPrmData(buffer)>
+    
+    %% Generate the controller callback function definition
+    %% This function wraps the function-call subsystem execution
+    %openfile fcn_buffer
+    
+    /*
+     * Controller callback function for block %<block_id>
+     * This is called from within the libfranka control loop at 1kHz.
+     * It executes the function-call subsystem (user's controller).
+     */
+    void %<fcn_name>(void) {
+        /* Execute the function-call subsystem connected to output port 0 */
+        %<LibBlockExecuteFcnCall(block, 0)>
+    }
+    
+    %closefile fcn_buffer
+    %<LibCacheFunctionPrototype(fcn_buffer)>
 }
 %endfunction
 
@@ -34,35 +62,50 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
-    %assign robot_ip = FEVAL("erase", ParamSettings.robot_ip, "'")
-    %assign robot_ip = FEVAL("strtrim", robot_ip)
-    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
-    %assign robot_id = FEVAL("strtrim", robot_id)
+    %% Use block identifier for unique naming (sanitized for C identifier)
+    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
+    %assign fcn_name = "franka_controller_step_%<block_id>"
     
     /* Initialize Franka Torque Control Context */
-    franka_ctx_%<robot_id>.initialize("%<robot_ip>");
+    /* robot_ip comes from input port 1 as ASCII string (null-terminated) */
+    franka_ctx_%<block_id>.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
     
-    /* Initialize DWork states */
+    /* Register the controller callback function */
+    /* This callback will be invoked from within robot.control() at 1kHz */
+    franka_ctx_%<block_id>.setControllerCallback(&%<fcn_name>);
+    
+    /* Set pointers to Simulink I/O signals */
+    franka_ctx_%<block_id>.setOutputPointers(
+        %<LibBlockOutputSignalAddr(1, "", "", 0)>,   /* q [7] */
+        %<LibBlockOutputSignalAddr(2, "", "", 0)>    /* dq [7] */
+    );
+    franka_ctx_%<block_id>.setInputPointers(
+        %<LibBlockInputSignalAddr(2, "", "", 0)>     /* tau_J_d [7] - now port 2 */
+    );
+    
+    /* Initialize DWork state */
     %<LibBlockDWork(PrevEnable, "", "", 0)> = 0.0;
-    %<LibBlockDWork(ControlState, "", "", 0)> = 0.0;
 }
 %endfunction
 
 %% ========================================================================
-%% Outputs - Main execution code (called at each time step)
+%% Outputs - Called by Simulink scheduler (for enable/disable handling)
+%% The actual 1kHz control happens inside robot.control(), not here
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
-    %assign robot_id = FEVAL("strtrim", robot_id)
+    %% Use block identifier for unique naming (sanitized for C identifier)
+    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
     
     /* Franka Torque Control Block: %<Name> */
+    /* Note: This Outputs() is only for enable/disable edge detection */
+    /* The actual 1kHz control loop runs in robot.control() */
     
-    /* Get inputs */
+    /* Get enable input */
     real_T enable = %<LibBlockInputSignal(0, "", "", 0)>;
     real_T prev_enable = %<LibBlockDWork(PrevEnable, "", "", 0)>;
     
-    /* Edge detection for enable signal */
+    /* Edge detection */
     bool rising_edge = (enable > 0.5) && (prev_enable <= 0.5);
     bool falling_edge = (enable <= 0.5) && (prev_enable > 0.5);
     
@@ -70,48 +113,14 @@
     %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
     
     /* Handle state transitions */
-    if (rising_edge) {
-        /* Start control on rising edge */
-        franka_ctx_%<robot_id>.startControl();
-        %<LibBlockDWork(ControlState, "", "", 0)> = 1.0;
+    if (rising_edge && !franka_ctx_%<block_id>.isControlRunning()) {
+        /* Start control loop on rising edge */
+        franka_ctx_%<block_id>.startControl();
     }
-    else if (falling_edge) {
-        /* Stop control on falling edge */
-        franka_ctx_%<robot_id>.stopControl();
-        %<LibBlockDWork(ControlState, "", "", 0)> = 0.0;
+    else if (falling_edge && franka_ctx_%<block_id>.isControlRunning()) {
+        /* Request stop on falling edge (graceful) */
+        franka_ctx_%<block_id>.requestStop();
     }
-    
-    /* If control is running, process the control loop step */
-    if (franka_ctx_%<robot_id>.isControlRunning()) {
-        
-        /* Wait for control thread to signal new state is ready */
-        franka_ctx_%<robot_id>.waitForControlStep();
-        
-        /* Check for errors */
-        if (franka_ctx_%<robot_id>.hasError()) {
-            %<LibBlockDWork(ControlState, "", "", 0)> = 2.0;  /* Error state */
-        }
-        else {
-            /* Copy robot state to outputs */
-            franka_ctx_%<robot_id>.getJointPositions(%<LibBlockOutputSignalAddr(1, "", "", 0)>);
-            franka_ctx_%<robot_id>.getJointVelocities(%<LibBlockOutputSignalAddr(2, "", "", 0)>);
-            
-            /* ============================================================ */
-            /* TRIGGER FUNCTION-CALL SUBSYSTEM                              */
-            /* This executes the user's controller connected to port 0      */
-            /* ============================================================ */
-            %<LibBlockExecuteFcnCall(block, 0)>
-            
-            /* Read computed torques from input port */
-            franka_ctx_%<robot_id>.setJointTorques(%<LibBlockInputSignalAddr(1, "", "", 0)>);
-            
-            /* Signal control thread to continue */
-            franka_ctx_%<robot_id>.signalControlContinue();
-        }
-    }
-    
-    /* Output status */
-    %<LibBlockOutputSignal(3, "", "", 0)> = %<LibBlockDWork(ControlState, "", "", 0)>;
 }
 %endfunction
 
@@ -120,11 +129,10 @@
 %% ========================================================================
 %function Terminate(block, system) Output
 {
-    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
-    %assign robot_id = FEVAL("strtrim", robot_id)
+    %% Use block identifier for unique naming (sanitized for C identifier)
+    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
     
     /* Shutdown Franka control */
-    franka_ctx_%<robot_id>.shutdown();
+    franka_ctx_%<block_id>.shutdown();
 }
 %endfunction
-
