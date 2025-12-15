@@ -40,8 +40,9 @@ void FrankaTorqueControlContext::initialize(const std::string& robot_ip) {
     }
 }
 
-void FrankaTorqueControlContext::setControllerCallback(ControllerCallback callback) {
+void FrankaTorqueControlContext::setControllerCallback(ControllerCallback callback, void* user_data) {
     controller_callback_ = callback;
+    controller_user_data_ = user_data;
 }
 
 void FrankaTorqueControlContext::setOutputPointers(double* q_ptr, double* dq_ptr) {
@@ -140,7 +141,7 @@ franka::Torques FrankaTorqueControlContext::controlCallback(
     // Step 2: Execute the controller (function-call subsystem)
     // ========================================================================
     if (controller_callback_) {
-        controller_callback_();
+        controller_callback_(controller_user_data_);
     }
     
     // ========================================================================

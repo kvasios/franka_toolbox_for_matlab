@@ -28,7 +28,7 @@
  * This is a pointer to the Simulink-generated function that executes
  * the function-call subsystem (user's controller).
  */
-using ControllerCallback = void (*)(void);
+using ControllerCallback = void (*)(void* user_data);
 
 /**
  * @brief Context class for Franka robot torque control
@@ -68,8 +68,9 @@ public:
     /**
      * @brief Set the controller callback function
      * @param callback Function pointer to the controller callback
+     * @param user_data Opaque pointer passed to callback on each invocation
      */
-    void setControllerCallback(ControllerCallback callback);
+    void setControllerCallback(ControllerCallback callback, void* user_data);
     
     /**
      * @brief Set pointers to Simulink output signals
@@ -128,6 +129,7 @@ private:
     
     // Controller callback (points to Simulink-generated function)
     ControllerCallback controller_callback_{nullptr};
+    void* controller_user_data_{nullptr};
     
     // Pointers to Simulink I/O signals
     double* q_out_{nullptr};

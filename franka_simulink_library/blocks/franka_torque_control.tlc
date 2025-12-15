@@ -17,7 +17,7 @@
 
 %% ========================================================================
 %% BlockInstanceSetup - Called once per block instance
-%% Declares global variables and the controller callback function
+%% Declares global variables
 %% ========================================================================
 %function BlockInstanceSetup(block, system) Output
 {
@@ -25,29 +25,9 @@
     
     /* Franka Torque Control Context */
     FrankaTorqueControlContext franka_ctx;
-    
-    /* Forward declaration of controller callback */
-    void franka_controller_step(void);
-    
+
     %closefile buffer
     %<LibCacheGlobalPrmData(buffer)>
-    
-    %% Generate the controller callback function definition
-    %% This function wraps the function-call subsystem execution
-    %openfile fcn_buffer
-    
-    /*
-     * Controller callback function
-     * This is called from within the libfranka control loop at 1kHz.
-     * It executes the function-call subsystem (user's controller).
-     */
-    void franka_controller_step(void) {
-        /* Execute the function-call subsystem connected to output port 0 */
-        %<LibBlockExecuteFcnCall(block, 0)>
-    }
-    
-    %closefile fcn_buffer
-    %<LibCacheFunctionPrototype(fcn_buffer)>
 }
 %endfunction
 
@@ -59,10 +39,39 @@
     /* Initialize Franka Torque Control Context */
     /* robot_ip comes from input port 1 as ASCII string (null-terminated) */
     franka_ctx.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
-    
-    /* Register the controller callback function */
-    /* This callback will be invoked from within robot.control() at 1kHz */
-    franka_ctx.setControllerCallback(&franka_controller_step);
+
+    /* Register controller callback (1kHz, libfranka control thread).
+     *
+     * We intentionally avoid LibGetFcnCallISR/LibBlockExecuteFcnCall here:
+     * those require TLC driver-scoped symbols (e.g. BlockIdx/BlockId) and/or
+     * can expand to inline code that depends on the model-step context.
+     *
+     * Instead, we call the generated Controller *member function* on the
+     * current model instance ("this") via a free-function trampoline.
+     *
+     * Requirements:
+     * - The function-call subsystem (Controller) must be generated as a callable
+     *   function (not fully inlined into step). In C++ class interface mode,
+     *   this will typically be a method like: this->motion_with_control_Controller().
+     */
+    %assign callIdx = 0
+    %assign recIdx = block.SFcnSystemOutputCallMappingInfo[callIdx].StartingIdx
+    %assign dstSSBlk = LibGetFcnCallBlock(block, recIdx)
+    %if !LibIsEqual(dstSSBlk, "")
+        %with dstSSBlk
+            %assign ctrlSysIdx = LibBlockParamSetting("Subsystem", "SystemIdx")
+        %endwith
+        %assign ctrlFcnName = ::CompiledModel.System[ctrlSysIdx].OutputUpdateFcn
+        %if !LibIsEqual(ctrlFcnName, "")
+            franka_ctx.setControllerCallback(
+                +[](void* user_data) {
+                    auto self = static_cast<decltype(this)>(user_data);
+                    self->%<ctrlFcnName>();
+                },
+                this
+            );
+        %endif
+    %endif
     
     /* Set pointers to Simulink I/O signals */
     franka_ctx.setOutputPointers(
@@ -85,8 +94,6 @@
 %function Outputs(block, system) Output
 {
     /* Franka Torque Control Block */
-    /* Note: This Outputs() is only for enable/disable edge detection */
-    /* The actual 1kHz control loop runs in robot.control() */
     
     /* Get enable input */
     real_T enable = %<LibBlockInputSignal(0, "", "", 0)>;
