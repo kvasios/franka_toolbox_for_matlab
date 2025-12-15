@@ -21,19 +21,13 @@
 %% ========================================================================
 %function BlockInstanceSetup(block, system) Output
 {
-    %% Use block identifier for unique naming (sanitized for C identifier)
-    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
-    
-    %% Generate unique callback function name
-    %assign fcn_name = "franka_controller_step_%<block_id>"
-    
     %openfile buffer
     
-    /* Franka Torque Control Context for block %<block_id> */
-    FrankaTorqueControlContext franka_ctx_%<block_id>;
+    /* Franka Torque Control Context */
+    FrankaTorqueControlContext franka_ctx;
     
     /* Forward declaration of controller callback */
-    void %<fcn_name>(void);
+    void franka_controller_step(void);
     
     %closefile buffer
     %<LibCacheGlobalPrmData(buffer)>
@@ -43,11 +37,11 @@
     %openfile fcn_buffer
     
     /*
-     * Controller callback function for block %<block_id>
+     * Controller callback function
      * This is called from within the libfranka control loop at 1kHz.
      * It executes the function-call subsystem (user's controller).
      */
-    void %<fcn_name>(void) {
+    void franka_controller_step(void) {
         /* Execute the function-call subsystem connected to output port 0 */
         %<LibBlockExecuteFcnCall(block, 0)>
     }
@@ -62,25 +56,21 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
-    %% Use block identifier for unique naming (sanitized for C identifier)
-    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
-    %assign fcn_name = "franka_controller_step_%<block_id>"
-    
     /* Initialize Franka Torque Control Context */
     /* robot_ip comes from input port 1 as ASCII string (null-terminated) */
-    franka_ctx_%<block_id>.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
+    franka_ctx.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
     
     /* Register the controller callback function */
     /* This callback will be invoked from within robot.control() at 1kHz */
-    franka_ctx_%<block_id>.setControllerCallback(&%<fcn_name>);
+    franka_ctx.setControllerCallback(&franka_controller_step);
     
     /* Set pointers to Simulink I/O signals */
-    franka_ctx_%<block_id>.setOutputPointers(
+    franka_ctx.setOutputPointers(
         %<LibBlockOutputSignalAddr(1, "", "", 0)>,   /* q [7] */
         %<LibBlockOutputSignalAddr(2, "", "", 0)>    /* dq [7] */
     );
-    franka_ctx_%<block_id>.setInputPointers(
-        %<LibBlockInputSignalAddr(2, "", "", 0)>     /* tau_J_d [7] - now port 2 */
+    franka_ctx.setInputPointers(
+        %<LibBlockInputSignalAddr(2, "", "", 0)>     /* tau_J_d [7] - port 2 */
     );
     
     /* Initialize DWork state */
@@ -94,10 +84,7 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    %% Use block identifier for unique naming (sanitized for C identifier)
-    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
-    
-    /* Franka Torque Control Block: %<Name> */
+    /* Franka Torque Control Block */
     /* Note: This Outputs() is only for enable/disable edge detection */
     /* The actual 1kHz control loop runs in robot.control() */
     
@@ -113,13 +100,13 @@
     %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
     
     /* Handle state transitions */
-    if (rising_edge && !franka_ctx_%<block_id>.isControlRunning()) {
+    if (rising_edge && !franka_ctx.isControlRunning()) {
         /* Start control loop on rising edge */
-        franka_ctx_%<block_id>.startControl();
+        franka_ctx.startControl();
     }
-    else if (falling_edge && franka_ctx_%<block_id>.isControlRunning()) {
+    else if (falling_edge && franka_ctx.isControlRunning()) {
         /* Request stop on falling edge (graceful) */
-        franka_ctx_%<block_id>.requestStop();
+        franka_ctx.requestStop();
     }
 }
 %endfunction
@@ -129,10 +116,7 @@
 %% ========================================================================
 %function Terminate(block, system) Output
 {
-    %% Use block identifier for unique naming (sanitized for C identifier)
-    %assign block_id = FEVAL("regexprep", LibGetBlockIdentifier(block), "[^a-zA-Z0-9]", "_")
-    
     /* Shutdown Franka control */
-    franka_ctx_%<block_id>.shutdown();
+    franka_ctx.shutdown();
 }
 %endfunction
