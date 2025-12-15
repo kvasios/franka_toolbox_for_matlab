@@ -1,0 +1,130 @@
+%%  Copyright (c) 2025 Franka Robotics GmbH
+%%  Franka Torque Control Block - TLC Implementation
+%%
+%%  This TLC file generates code for the Franka robot torque control block
+%%  with function-call subsystem triggering.
+%%
+%implements "franka_torque_control" "C"
+
+%% ========================================================================
+%% BlockTypeSetup - Called once per block type
+%% ========================================================================
+%function BlockTypeSetup(block, system) void
+    %<LibAddToCommonIncludes("franka_torque_control_api.h")>
+%endfunction
+
+%% ========================================================================
+%% BlockInstanceSetup - Called once per block instance
+%% ========================================================================
+%function BlockInstanceSetup(block, system) Output
+{
+    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
+    %assign robot_id = FEVAL("strtrim", robot_id)
+    
+    %% Declare global instance of the control context
+    %openfile buffer
+    FrankaTorqueControlContext franka_ctx_%<robot_id>;
+    %closefile buffer
+    %<LibCacheGlobalPrmData(buffer)>
+}
+%endfunction
+
+%% ========================================================================
+%% Start - Initialization code
+%% ========================================================================
+%function Start(block, system) Output
+{
+    %assign robot_ip = FEVAL("erase", ParamSettings.robot_ip, "'")
+    %assign robot_ip = FEVAL("strtrim", robot_ip)
+    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
+    %assign robot_id = FEVAL("strtrim", robot_id)
+    
+    /* Initialize Franka Torque Control Context */
+    franka_ctx_%<robot_id>.initialize("%<robot_ip>");
+    
+    /* Initialize DWork states */
+    %<LibBlockDWork(PrevEnable, "", "", 0)> = 0.0;
+    %<LibBlockDWork(ControlState, "", "", 0)> = 0.0;
+}
+%endfunction
+
+%% ========================================================================
+%% Outputs - Main execution code (called at each time step)
+%% ========================================================================
+%function Outputs(block, system) Output
+{
+    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
+    %assign robot_id = FEVAL("strtrim", robot_id)
+    
+    /* Franka Torque Control Block: %<Name> */
+    
+    /* Get inputs */
+    real_T enable = %<LibBlockInputSignal(0, "", "", 0)>;
+    real_T prev_enable = %<LibBlockDWork(PrevEnable, "", "", 0)>;
+    
+    /* Edge detection for enable signal */
+    bool rising_edge = (enable > 0.5) && (prev_enable <= 0.5);
+    bool falling_edge = (enable <= 0.5) && (prev_enable > 0.5);
+    
+    /* Update previous enable */
+    %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
+    
+    /* Handle state transitions */
+    if (rising_edge) {
+        /* Start control on rising edge */
+        franka_ctx_%<robot_id>.startControl();
+        %<LibBlockDWork(ControlState, "", "", 0)> = 1.0;
+    }
+    else if (falling_edge) {
+        /* Stop control on falling edge */
+        franka_ctx_%<robot_id>.stopControl();
+        %<LibBlockDWork(ControlState, "", "", 0)> = 0.0;
+    }
+    
+    /* If control is running, process the control loop step */
+    if (franka_ctx_%<robot_id>.isControlRunning()) {
+        
+        /* Wait for control thread to signal new state is ready */
+        franka_ctx_%<robot_id>.waitForControlStep();
+        
+        /* Check for errors */
+        if (franka_ctx_%<robot_id>.hasError()) {
+            %<LibBlockDWork(ControlState, "", "", 0)> = 2.0;  /* Error state */
+        }
+        else {
+            /* Copy robot state to outputs */
+            franka_ctx_%<robot_id>.getJointPositions(%<LibBlockOutputSignalAddr(1, "", "", 0)>);
+            franka_ctx_%<robot_id>.getJointVelocities(%<LibBlockOutputSignalAddr(2, "", "", 0)>);
+            
+            /* ============================================================ */
+            /* TRIGGER FUNCTION-CALL SUBSYSTEM                              */
+            /* This executes the user's controller connected to port 0      */
+            /* ============================================================ */
+            %<LibBlockExecuteFcnCall(block, 0)>
+            
+            /* Read computed torques from input port */
+            franka_ctx_%<robot_id>.setJointTorques(%<LibBlockInputSignalAddr(1, "", "", 0)>);
+            
+            /* Signal control thread to continue */
+            franka_ctx_%<robot_id>.signalControlContinue();
+        }
+    }
+    
+    /* Output status */
+    %<LibBlockOutputSignal(3, "", "", 0)> = %<LibBlockDWork(ControlState, "", "", 0)>;
+}
+%endfunction
+
+%% ========================================================================
+%% Terminate - Cleanup code
+%% ========================================================================
+%function Terminate(block, system) Output
+{
+    %assign robot_id = FEVAL("erase", ParamSettings.robot_id, "'")
+    %assign robot_id = FEVAL("strtrim", robot_id)
+    
+    /* Shutdown Franka control */
+    franka_ctx_%<robot_id>.shutdown();
+}
+%endfunction
+
