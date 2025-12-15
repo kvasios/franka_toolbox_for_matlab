@@ -123,8 +123,8 @@ private:
     // Control state
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
-    
-    // Control thread
+
+    // Control thread (runs robot.control())
     std::thread control_thread_;
     
     // Controller callback (points to Simulink-generated function)

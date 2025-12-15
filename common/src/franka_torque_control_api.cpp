@@ -58,11 +58,11 @@ void FrankaTorqueControlContext::shutdown() {
     if (running_) {
         requestStop();
     }
-    
+
     if (control_thread_.joinable()) {
         control_thread_.join();
     }
-    
+
     model_.reset();
     robot_.reset();
 }
@@ -79,7 +79,7 @@ void FrankaTorqueControlContext::startControl() {
     stop_requested_ = false;
     first_step_ = true;
     running_ = true;
-    
+
     control_thread_ = std::thread(&FrankaTorqueControlContext::controlThreadFunc, this);
 }
 

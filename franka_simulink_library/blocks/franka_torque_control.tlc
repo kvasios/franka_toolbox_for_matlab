@@ -13,6 +13,7 @@
 %% ========================================================================
 %function BlockTypeSetup(block, system) void
     %<LibAddToCommonIncludes("franka_torque_control_api.h")>
+    %<LibAddToCommonIncludes("<type_traits>")>
 %endfunction
 
 %% ========================================================================
@@ -36,6 +37,16 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
+    /* Dedicated controller model instance.
+     *
+     * This instance is ONLY used by the libfranka 1kHz control thread to run the
+     * atomic Controller subsystem as a callable function. The main thread may
+     * still run the top-level model instance for enable/disable logic, logging,
+     * etc, without racing on controller state.
+     */
+    using FrankaControllerModelT = std::remove_reference<decltype(*this)>::type;
+    static FrankaControllerModelT franka_controller_model;
+
     /* Initialize Franka Torque Control Context */
     /* robot_ip comes from input port 1 as ASCII string (null-terminated) */
     franka_ctx.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
@@ -61,28 +72,62 @@
         %with dstSSBlk
             %assign ctrlSysIdx = LibBlockParamSetting("Subsystem", "SystemIdx")
         %endwith
+
         %assign ctrlFcnName = ::CompiledModel.System[ctrlSysIdx].OutputUpdateFcn
         %if !LibIsEqual(ctrlFcnName, "")
             franka_ctx.setControllerCallback(
                 +[](void* user_data) {
-                    auto self = static_cast<decltype(this)>(user_data);
-                    self->%<ctrlFcnName>();
+                    auto ctrl = static_cast<decltype(this)>(user_data);
+                    ctrl->%<ctrlFcnName>();
+                    /* Advance controller-model timebase at 1kHz */
+                    ctrl->getRTM()->Timing.clockTick0++;
                 },
-                this
+                &franka_controller_model
             );
         %endif
+
+        /* Initialize controller model state (atomic Controller subsystem). */
+        %assign ctrlInitFcn = ""
+        %assign ctrlEnableFcn = ""
+        %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "InitializeFcn")
+            %assign ctrlInitFcn = ::CompiledModel.System[ctrlSysIdx].InitializeFcn
+        %endif
+        %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "EnableFcn")
+            %assign ctrlEnableFcn = ::CompiledModel.System[ctrlSysIdx].EnableFcn
+        %endif
+        %if !LibIsEqual(ctrlInitFcn, "")
+            franka_controller_model.%<ctrlInitFcn>();
+        %endif
+        %if !LibIsEqual(ctrlEnableFcn, "")
+            franka_controller_model.%<ctrlEnableFcn>();
+        %endif
+
+        /* Wire Franka <-> controller-model signals.
+         *
+         * We reuse the generated signal address expressions for this S-function
+         * (in the current model instance) and rewrite them to point at the
+         * dedicated controller model instance.
+         */
+        %assign bsMember = "%<::CompiledModel.Name>_B"
+        %assign qExpr  = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
+        %assign dqExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
+        %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
+        %assign fromPrefix = "&%<bsMember>."
+        %assign toPrefix = "&franka_controller_model.%<bsMember>."
+        %assign qExprCtrl = FEVAL("strrep", qExpr, fromPrefix, toPrefix)
+        %assign dqExprCtrl = FEVAL("strrep", dqExpr, fromPrefix, toPrefix)
+        %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
+
+        franka_ctx.setOutputPointers(
+            %<qExprCtrl>,   /* q [7] */
+            %<dqExprCtrl>   /* dq [7] */
+        );
+        franka_ctx.setInputPointers(
+            %<tauExprCtrl>  /* tau_J_d [7] */
+        );
     %endif
     
-    /* Set pointers to Simulink I/O signals */
-    franka_ctx.setOutputPointers(
-        %<LibBlockOutputSignalAddr(1, "", "", 0)>,   /* q [7] */
-        %<LibBlockOutputSignalAddr(2, "", "", 0)>    /* dq [7] */
-    );
-    franka_ctx.setInputPointers(
-        %<LibBlockInputSignalAddr(2, "", "", 0)>     /* tau_J_d [7] - port 2 */
-    );
-    
-    /* Initialize DWork state */
+    /* Initialize DWork state (for enable edge detection in main model). */
     %<LibBlockDWork(PrevEnable, "", "", 0)> = 0.0;
 }
 %endfunction

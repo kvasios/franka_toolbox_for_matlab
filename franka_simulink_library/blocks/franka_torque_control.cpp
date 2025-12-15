@@ -10,7 +10,7 @@
  *   2. tau_J_d   (7x1)   - Commanded joint torques (read from controller subsystem)
  *
  * Outputs:
- *   0. fcall     (function-call) - Triggers controller subsystem at 1kHz [MUST BE FIRST]
+ *   0. fcall     (function-call) - Triggers controller subsystem at inherited rate [MUST BE FIRST]
  *   1. q         (7x1) - Measured joint positions
  *   2. dq        (7x1) - Measured joint velocities
  *
@@ -134,10 +134,9 @@ static void mdlInitializeSizes(SimStruct *S)
  * ======================================================================== */
 static void mdlInitializeSampleTimes(SimStruct *S)
 {
-    /* 1kHz discrete sample time */
-    ssSetSampleTime(S, 0, 0.001);
+    /* Inherited sample time */
+    ssSetSampleTime(S, 0, INHERITED_SAMPLE_TIME);
     ssSetOffsetTime(S, 0, 0.0);
-    ssSetModelReferenceSampleTimeDefaultInheritance(S);
     
     /* Register function-call output port */
     ssSetCallSystemOutput(S, OUT_FCALL);
