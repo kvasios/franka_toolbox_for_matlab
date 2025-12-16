@@ -409,7 +409,7 @@ jobs:
         command: |
           addpath(genpath(pwd));
           fprintf('Creating Gen3 distribution package (libfranka 0.18.x)...\n');
-          franka_toolbox_dist_make('Mode', 'ci', 'OutputName', 'franka-fr3');
+          franka_mltbx_package('Mode', 'ci', 'OutputName', 'franka-fr3');
           fprintf('Gen3 distribution package created!\n');
     
     - name: Download server artifacts (Gen1 - libfranka 0.9.2)
@@ -422,7 +422,7 @@ jobs:
       run: |
         echo "=== Swapping in Gen1 binaries (libfranka 0.9.2) ==="
         
-        # Replace with Gen1 binaries (franka_toolbox_dist_make preserves existing .mltbx in CI mode)
+        # Replace with Gen1 binaries (franka_mltbx_package preserves existing .mltbx in CI mode)
         cp gen1-binaries/franka_robot_server/bin_gen1.tar.gz franka_robot_server/bin.tar.gz
         cp gen1-binaries/franka_robot_server/bin_arm_gen1.tar.gz franka_robot_server/bin_arm.tar.gz
         cp gen1-binaries/dependencies/franka_gen1.zip dependencies/libfranka.zip
@@ -440,7 +440,7 @@ jobs:
         command: |
           addpath(genpath(pwd));
           fprintf('Creating Gen1 distribution package (libfranka 0.9.2)...\n');
-          franka_toolbox_dist_make('Mode', 'ci', 'OutputName', 'franka-fer');
+          franka_mltbx_package('Mode', 'ci', 'OutputName', 'franka-fer');
           fprintf('Gen1 distribution package created!\n');
     
     - name: Verify distribution outputs

@@ -24,7 +24,7 @@ function franka_binaries_all_build(varargin)
     %     - Requires SSH access to a Jetson device
     %     - Builds ARM64 binaries on the remote machine
     %
-    %   After building, run franka_toolbox_dist_make() for packaging.
+    %   After building, run franka_mltbx_package() for packaging.
     %
     %   Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %   This file is subject to the terms and conditions defined in the file
@@ -97,7 +97,7 @@ function franka_binaries_all_build(varargin)
     fprintf('Build Complete!\n');
     fprintf('==============================================\n');
     fprintf('\n');
-    fprintf('Next step: Run franka_toolbox_dist_make() to create the distribution package.\n');
+    fprintf('Next step: Run franka_mltbx_package() to create the distribution package.\n');
     fprintf('\n');
     
 end

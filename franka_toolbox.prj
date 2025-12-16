@@ -33,7 +33,7 @@
 .git/
 .gitignore
 CHANGELOG.md
-franka_toolbox_dist_make.m
+franka_mltbx_package.m
 *.bak</param.exclude.filters>
     <param.exclude.pcodedmfiles>true</param.exclude.pcodedmfiles>
     <param.examples />
