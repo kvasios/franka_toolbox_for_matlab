@@ -24,5 +24,5 @@ set(Matlab_INCLUDE_DIRS
 #
 matlab_add_mex(
      NAME franka_robot_sfunction
-     SRC "blocks/franka_robot.cpp"
+     SRC "blocks/franka_robot_sfunction.cpp"
 )

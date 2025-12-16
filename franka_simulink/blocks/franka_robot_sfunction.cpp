@@ -1,5 +1,5 @@
 /*
- * franka_robot.cpp - C++ Level-2 S-Function for Franka robot control
+ * franka_robot_sfunction.cpp - C++ Level-2 S-Function for Franka robot control
  *
  * This block wraps libfranka's robot.control() with torque callback.
  * It outputs a function-call signal to trigger an external controller subsystem.
