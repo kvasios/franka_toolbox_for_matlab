@@ -45,9 +45,10 @@ void FrankaTorqueControlContext::setControllerCallback(ControllerCallback callba
     controller_user_data_ = user_data;
 }
 
-void FrankaTorqueControlContext::setOutputPointers(double* q_ptr, double* dq_ptr) {
+void FrankaTorqueControlContext::setOutputPointers(double* q_ptr, double* dq_ptr, double* dt_sec_ptr) {
     q_out_ = q_ptr;
     dq_out_ = dq_ptr;
+    dt_sec_out_ = dt_sec_ptr;
 }
 
 void FrankaTorqueControlContext::setInputPointers(const double* tau_J_d_ptr) {
@@ -77,7 +78,6 @@ void FrankaTorqueControlContext::startControl() {
     }
     
     stop_requested_ = false;
-    first_step_ = true;
     running_ = true;
 
     control_thread_ = std::thread(&FrankaTorqueControlContext::controlThreadFunc, this);
@@ -130,18 +130,24 @@ franka::Torques FrankaTorqueControlContext::controlCallback(
     if (dq_out_) {
         std::copy(state.dq.begin(), state.dq.end(), dq_out_);
     }
-    
-    // Skip controller on first step
-    if (first_step_) {
-        first_step_ = false;
-        return franka::Torques({0, 0, 0, 0, 0, 0, 0});
+
+    // ========================================================================
+    // Step 2: Compute dt_sec (franka::Duration) and execute controller
+    // ========================================================================
+    // dt_sec is time since previous callback:
+    //   - First callback: period=0 (no previous callback)
+    //   - Subsequent callbacks: typically ~0.001s, can be ~0.002s on jitter
+    //
+    // Following libfranka convention, we pass dt_sec to the controller callback
+    // which advances taskTime0 BEFORE running the controller. On first callback,
+    // dt_sec=0 so taskTime0 stays at 0, matching libfranka examples.
+    const double dt_sec = period.toSec();
+    if (dt_sec_out_) {
+        *dt_sec_out_ = dt_sec;
     }
     
-    // ========================================================================
-    // Step 2: Execute the controller (function-call subsystem)
-    // ========================================================================
     if (controller_callback_) {
-        controller_callback_(controller_user_data_);
+        controller_callback_(controller_user_data_, dt_sec);
     }
     
     // ========================================================================

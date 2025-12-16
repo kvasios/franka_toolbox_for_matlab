@@ -28,7 +28,7 @@
  * This is a pointer to the Simulink-generated function that executes
  * the function-call subsystem (user's controller).
  */
-using ControllerCallback = void (*)(void* user_data);
+using ControllerCallback = void (*)(void* user_data, double dt_sec);
 
 /**
  * @brief Context class for Franka robot torque control
@@ -76,8 +76,9 @@ public:
      * @brief Set pointers to Simulink output signals
      * @param q_ptr Pointer to q output [7]
      * @param dq_ptr Pointer to dq output [7]
+     * @param dt_sec_ptr Pointer to dt output [1] (seconds)
      */
-    void setOutputPointers(double* q_ptr, double* dq_ptr);
+    void setOutputPointers(double* q_ptr, double* dq_ptr, double* dt_sec_ptr);
     
     /**
      * @brief Set pointers to Simulink input signals
@@ -134,10 +135,8 @@ private:
     // Pointers to Simulink I/O signals
     double* q_out_{nullptr};
     double* dq_out_{nullptr};
+    double* dt_sec_out_{nullptr};
     const double* tau_J_d_in_{nullptr};
-    
-    // First step flag
-    bool first_step_{true};
 };
 
 #endif // FRANKA_TORQUE_CONTROL_API_H

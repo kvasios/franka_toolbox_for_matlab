@@ -13,6 +13,7 @@
  *   0. fcall     (function-call) - Triggers controller subsystem at inherited rate [MUST BE FIRST]
  *   1. q         (7x1) - Measured joint positions
  *   2. dq        (7x1) - Measured joint velocities
+ *   3. dt_sec    (1x1) - Measured control period from libfranka callback [s]
  *
  * Copyright (c) 2025 Franka Robotics GmbH
  */
@@ -38,7 +39,8 @@
 #define OUT_FCALL     0   /* Function-call output - MUST BE FIRST */
 #define OUT_Q         1
 #define OUT_DQ        2
-#define NUM_OUTPUTS   3
+#define OUT_DT_SEC    3
+#define NUM_OUTPUTS   4
 
 /* DWork indices */
 #define DWORK_PREV_ENABLE 0
@@ -103,6 +105,10 @@ static void mdlInitializeSizes(SimStruct *S)
     /* Port 2: dq (7x1) */
     ssSetOutputPortWidth(S, OUT_DQ, 7);
     ssSetOutputPortDataType(S, OUT_DQ, SS_DOUBLE);
+
+    /* Port 3: dt_sec (1x1) */
+    ssSetOutputPortWidth(S, OUT_DT_SEC, 1);
+    ssSetOutputPortDataType(S, OUT_DT_SEC, SS_DOUBLE);
     
     /* ====================================================================
      * SAMPLE TIME
@@ -163,12 +169,14 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     /* For simulation only - actual implementation is in TLC */
     real_T *q  = ssGetOutputPortRealSignal(S, OUT_Q);
     real_T *dq = ssGetOutputPortRealSignal(S, OUT_DQ);
+    real_T *dt_sec = ssGetOutputPortRealSignal(S, OUT_DT_SEC);
     
     /* Output zeros in simulation */
     for (int i = 0; i < 7; i++) {
         q[i]  = 0.0;
         dq[i] = 0.0;
     }
+    dt_sec[0] = 0.0;
     
     UNUSED_ARG(tid);
 }

@@ -97,19 +97,30 @@
         %endif
         %if !LibIsEqual(ctrlFcnName, "")
             franka_ctx.setControllerCallback(
-                +[](void* user_data) {
+                +[](void* user_data, double dt_sec) {
                     auto ctrl = static_cast<decltype(this)>(user_data);
-                    ctrl->%<ctrlFcnName>();
-                    /* Advance controller-model timebase at 1kHz (match generated base-rate tick update). */
+
+                    /* Advance controller-model timebase FIRST (libfranka convention).
+                     *
+                     * dt_sec is the time elapsed since the previous callback (franka::Duration):
+                     *   - First callback: dt_sec=0 (no previous callback), taskTime0 stays at 0
+                     *   - Subsequent callbacks: dt_sec≈0.001s (can be ~0.002s on jitter)
+                     *
+                     * This matches libfranka examples: time += period.toSec() at callback start.
+                     * stepSize0 stays constant at 0.001 (nominal); only taskTime0 changes.
+                     */
                     {
                         auto* rtm = ctrl->getRTM();
+                        if (dt_sec > 0.0) {
+                            rtm->Timing.taskTime0 += dt_sec;
+                        }
                         if (!(++rtm->Timing.clockTick0)) {
                             ++rtm->Timing.clockTickH0;
                         }
-                        rtm->Timing.taskTime0 =
-                            rtm->Timing.clockTick0 * rtm->Timing.stepSize0 +
-                            rtm->Timing.clockTickH0 * rtm->Timing.stepSize0 * 4294967296.0;
                     }
+
+                    /* Now run the controller with the updated time */
+                    ctrl->%<ctrlFcnName>();
                 },
                 &franka_controller_model
             );
@@ -169,16 +180,19 @@
         %assign bsMember = "%<::CompiledModel.Name>_B"
         %assign qExpr  = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
         %assign dqExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
+        %assign dtExpr = "%<LibBlockOutputSignalAddr(3, "", "", 0)>"
         %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
         %assign fromPrefix = "&%<bsMember>."
         %assign toPrefix = "&franka_controller_model.%<bsMember>."
         %assign qExprCtrl = FEVAL("strrep", qExpr, fromPrefix, toPrefix)
         %assign dqExprCtrl = FEVAL("strrep", dqExpr, fromPrefix, toPrefix)
+        %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
         %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
 
         franka_ctx.setOutputPointers(
             %<qExprCtrl>,   /* q [7] */
-            %<dqExprCtrl>   /* dq [7] */
+            %<dqExprCtrl>,  /* dq [7] */
+            %<dtExprCtrl>   /* dt_sec [1] */
         );
         franka_ctx.setInputPointers(
             %<tauExprCtrl>  /* tau_J_d [7] */
