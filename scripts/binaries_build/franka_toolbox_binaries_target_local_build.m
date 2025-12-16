@@ -5,8 +5,8 @@ function franka_toolbox_binaries_target_local_build(use_docker)
     %   franka_toolbox_binaries_target_local_build(true) - Build using Docker
     %   franka_toolbox_binaries_target_local_build(false) - Build natively (legacy)
     %
-    %   This function builds the target binaries (franka_robot_server and
-    %   common library) for the local Linux x86_64 system.
+    %   This function builds the target binaries (franka_robot_server)
+    %   for the local Linux x86_64 system.
     %
     %   Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     
@@ -30,9 +30,6 @@ function franka_toolbox_binaries_target_local_build(use_docker)
         %% local target x86
         % libfranka
         franka_toolbox_libfranka_build(libfranka_ver,true);
-    
-        % common 
-        franka_common_build();
     
         % FrankaRobot() server
         franka_robot_server_build();

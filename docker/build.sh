@@ -67,8 +67,6 @@ show_help() {
     echo "  $0 --libfranka 0.16.1       # Build with specific libfranka version"
     echo ""
     echo "Output:"
-    echo "  common/bin.zip              # x86_64 common library"
-    echo "  common/bin_arm.zip          # ARM64 common library"
     echo "  franka_robot_server/bin.tar.gz      # x86_64 server"
     echo "  franka_robot_server/bin_arm.tar.gz  # ARM64 server"
     echo "  dependencies/libfranka.zip          # x86_64 libfranka"
@@ -141,7 +139,6 @@ log_info "Libfranka Version: ${LIBFRANKA_VERSION}"
 echo ""
 
 # Create output directories
-mkdir -p "${PROJECT_ROOT}/common"
 mkdir -p "${PROJECT_ROOT}/franka_robot_server"
 mkdir -p "${PROJECT_ROOT}/dependencies"
 
@@ -157,7 +154,7 @@ build_for_arch() {
     # Fix any existing root-owned files in project directories (from previous failed runs)
     log_info "Fixing existing file permissions..."
     docker run --rm -v "${PROJECT_ROOT}:/workspace:rw" alpine sh -c \
-        "chown -R $(id -u):$(id -g) /workspace/common /workspace/franka_robot_server /workspace/dependencies /workspace/libfranka /workspace/libfranka_arm 2>/dev/null || true"
+        "chown -R $(id -u):$(id -g) /workspace/franka_robot_server /workspace/dependencies /workspace/libfranka /workspace/libfranka_arm 2>/dev/null || true"
     
     # Build Docker image
     log_info "Building Docker image: ${image_name}..."
@@ -187,7 +184,7 @@ build_for_arch() {
     # Fix ownership of workspace files (libfranka clone, build artifacts, etc.)
     log_info "Fixing workspace file permissions..."
     docker run --rm -v "${PROJECT_ROOT}:/workspace:rw" alpine sh -c \
-        "chown -R $(id -u):$(id -g) /workspace/common /workspace/franka_robot_server /workspace/dependencies /workspace/libfranka /workspace/libfranka_arm 2>/dev/null || true"
+        "chown -R $(id -u):$(id -g) /workspace/franka_robot_server /workspace/dependencies /workspace/libfranka /workspace/libfranka_arm 2>/dev/null || true"
     
     # Fix ownership of output files using docker (avoids needing sudo password)
     log_info "Fixing file ownership..."
@@ -199,15 +196,11 @@ build_for_arch() {
     log_info "Copying build artifacts..."
     
     if [[ "$arch" == "amd64" ]]; then
-        [[ -f "${container_output}/bin.zip" ]] && \
-            cp "${container_output}/bin.zip" "${PROJECT_ROOT}/common/"
         [[ -f "${container_output}/bin.tar.gz" ]] && \
             cp "${container_output}/bin.tar.gz" "${PROJECT_ROOT}/franka_robot_server/"
         [[ -f "${container_output}/libfranka.zip" ]] && \
             cp "${container_output}/libfranka.zip" "${PROJECT_ROOT}/dependencies/"
     else
-        [[ -f "${container_output}/bin_arm.zip" ]] && \
-            cp "${container_output}/bin_arm.zip" "${PROJECT_ROOT}/common/"
         [[ -f "${container_output}/bin_arm.tar.gz" ]] && \
             cp "${container_output}/bin_arm.tar.gz" "${PROJECT_ROOT}/franka_robot_server/"
         [[ -f "${container_output}/libfranka_arm.zip" ]] && \
@@ -241,8 +234,6 @@ echo ""
 
 if [[ "$BUILD_ARCH" == "amd64" ]] || [[ "$BUILD_ARCH" == "all" ]]; then
     echo "  x86_64 (amd64):"
-    [[ -f "${PROJECT_ROOT}/common/bin.zip" ]] && \
-        echo "    ✓ common/bin.zip" || echo "    ✗ common/bin.zip (missing)"
     [[ -f "${PROJECT_ROOT}/franka_robot_server/bin.tar.gz" ]] && \
         echo "    ✓ franka_robot_server/bin.tar.gz" || echo "    ✗ franka_robot_server/bin.tar.gz (missing)"
     [[ -f "${PROJECT_ROOT}/dependencies/libfranka.zip" ]] && \
@@ -252,8 +243,6 @@ fi
 
 if [[ "$BUILD_ARCH" == "arm64" ]] || [[ "$BUILD_ARCH" == "all" ]]; then
     echo "  ARM64 (arm64):"
-    [[ -f "${PROJECT_ROOT}/common/bin_arm.zip" ]] && \
-        echo "    ✓ common/bin_arm.zip" || echo "    ✗ common/bin_arm.zip (missing)"
     [[ -f "${PROJECT_ROOT}/franka_robot_server/bin_arm.tar.gz" ]] && \
         echo "    ✓ franka_robot_server/bin_arm.tar.gz" || echo "    ✗ franka_robot_server/bin_arm.tar.gz (missing)"
     [[ -f "${PROJECT_ROOT}/dependencies/libfranka_arm.zip" ]] && \
@@ -262,4 +251,3 @@ if [[ "$BUILD_ARCH" == "arm64" ]] || [[ "$BUILD_ARCH" == "all" ]]; then
 fi
 
 log_success "All builds completed successfully!"
-

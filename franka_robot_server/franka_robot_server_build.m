@@ -33,8 +33,6 @@ function franka_robot_server_build(varargin)
             end
         end
 
-        unzip(fullfile(installation_path,'common','bin_arm.zip'), fullfile(installation_path,'common'));
-
         % Define remote installation path
         remote_installation_path = '~/franka_matlab';
         
@@ -52,7 +50,7 @@ function franka_robot_server_build(varargin)
             p.Results.user, p.Results.ip, p.Results.port, sshOpts);
 
         % Copy only the necessary folders to remote machine
-        folders_to_copy = {'common', 'franka_robot_server','libfranka_arm'};
+        folders_to_copy = {'franka_robot_server', 'libfranka_arm'};
         
         % Remove build-related folders from franka_robot_server if they exist
         folders_to_remove = {'build'};
@@ -110,7 +108,6 @@ function franka_robot_server_build(varargin)
             fullfile(installation_path,'franka_robot_server','bin_arm'));
 
         rmdir(fullfile(installation_path,'franka_robot_server','bin_arm'),'s');
-        rmdir(fullfile(installation_path,'common','bin_arm'),'s');
     else
 
         installation_path = franka_toolbox_installation_path_get();
@@ -124,8 +121,6 @@ function franka_robot_server_build(varargin)
                 error('libfranka.zip not found in dependencies folder');
             end
         end
-
-        unzip(fullfile(installation_path,'common','bin.zip'), fullfile(installation_path,'common'));
 
         % Get the Franka directory path
         frankaDir = fullfile(installation_path,'libfranka','build');
@@ -167,7 +162,6 @@ function franka_robot_server_build(varargin)
 
         rmdir(fullfile(installation_path,'franka_robot_server','bin'),'s');
         rmdir(fullfile(installation_path,'franka_robot_server','build'),'s');
-        rmdir(fullfile(installation_path,'common','bin'),'s');
     end
 
     disp('=== Build completed successfully ===');

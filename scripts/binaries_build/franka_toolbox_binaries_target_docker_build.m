@@ -7,10 +7,9 @@ function franka_toolbox_binaries_target_docker_build(arch)
     %   franka_toolbox_binaries_target_docker_build('all') - Build for both architectures
     %
     %   This function uses Docker containers to build the target binaries
-    %   (franka_robot_server and common library) for Linux targets.
+    %   (franka_robot_server) for Linux targets.
     %
     %   Output files:
-    %     - common/bin.zip and common/bin_arm.zip
     %     - franka_robot_server/bin.tar.gz and franka_robot_server/bin_arm.tar.gz
     %     - dependencies/libfranka.zip and dependencies/libfranka_arm.zip
     %
@@ -101,14 +100,12 @@ function franka_toolbox_binaries_target_docker_build(arch)
     
     if strcmp(arch, 'amd64') || strcmp(arch, 'all')
         fprintf('\n  x86_64 (amd64):\n');
-        check_and_print_file(fullfile(installation_path, 'common', 'bin.zip'));
         check_and_print_file(fullfile(installation_path, 'franka_robot_server', 'bin.tar.gz'));
         check_and_print_file(fullfile(installation_path, 'dependencies', 'libfranka.zip'));
     end
     
     if strcmp(arch, 'arm64') || strcmp(arch, 'all')
         fprintf('\n  ARM64 (arm64):\n');
-        check_and_print_file(fullfile(installation_path, 'common', 'bin_arm.zip'));
         check_and_print_file(fullfile(installation_path, 'franka_robot_server', 'bin_arm.tar.gz'));
         check_and_print_file(fullfile(installation_path, 'dependencies', 'libfranka_arm.zip'));
     end
@@ -124,5 +121,3 @@ function check_and_print_file(filepath)
         fprintf('    ✗ %s (not found)\n', filepath);
     end
 end
-
-

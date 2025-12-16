@@ -11,16 +11,10 @@ log_info "Building franka_robot_server for ${ARCH}..."
 SERVER_PATH="${WORKSPACE}/franka_robot_server"
 SERVER_BUILD_PATH="${SERVER_PATH}/build"
 LIBFRANKA_PATH="${WORKSPACE}/${FRANKA_FOLDER}"
-COMMON_BIN_PATH="${WORKSPACE}/common/${BIN_FOLDER}"
 
 # Verify dependencies
 if [[ ! -d "$LIBFRANKA_PATH/build" ]]; then
     log_error "libfranka not built. Run build_libfranka.sh first."
-    exit 1
-fi
-
-if [[ ! -f "$COMMON_BIN_PATH/libfranka_matlab.a" ]]; then
-    log_error "Common library not built. Run build_common.sh first."
     exit 1
 fi
 
@@ -70,5 +64,3 @@ cp "${SERVER_BUILD_PATH}/franka_robot_server" "$BIN_PATH/"
 
 log_success "franka_robot_server build completed!"
 log_info "Output: ${BIN_PATH}/franka_robot_server"
-
-

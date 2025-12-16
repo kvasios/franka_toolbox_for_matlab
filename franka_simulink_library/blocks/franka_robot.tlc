@@ -1,18 +1,18 @@
 %%  Copyright (c) 2025 Franka Robotics GmbH
-%%  Franka Torque Control Block - TLC Implementation
+%%  Franka Robot Block - TLC Implementation
 %%
 %%  This TLC generates code where the libfranka control callback
 %%  directly executes the function-call subsystem (user's controller).
 %%
 %%  robot_ip is provided via input port 1 (not as a parameter).
 %%
-%implements "franka_torque_control" "C"
+%implements "franka_robot" "C"
 
 %% ========================================================================
 %% BlockTypeSetup - Called once per block type
 %% ========================================================================
 %function BlockTypeSetup(block, system) void
-    %<LibAddToCommonIncludes("franka_torque_control_api.h")>
+    %<LibAddToCommonIncludes("franka_robot_api.h")>
     %<LibAddToCommonIncludes("<type_traits>")>
 %endfunction
 
@@ -24,8 +24,8 @@
 {
     %openfile buffer
     
-    /* Franka Torque Control Context */
-    FrankaTorqueControlContext franka_ctx;
+    /* Franka Robot Context */
+    FrankaRobotContext franka_ctx;
 
     %closefile buffer
     %<LibCacheGlobalPrmData(buffer)>
@@ -65,7 +65,7 @@
         rtm->errorStatus = nullptr;
     }
 
-    /* Initialize Franka Torque Control Context */
+    /* Initialize Franka Robot Context */
     /* robot_ip comes from input port 1 as ASCII string (null-terminated) */
     franka_ctx.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
 
@@ -136,7 +136,7 @@
              * - Ensure the function-call subsystem is atomic and generates a callable function
              *   (not fully inlined into step).
              */
-            #error "franka_torque_control: could not resolve function-call subsystem entry point (OutputUpdateFcn='none'). Make the Controller subsystem callable (not inlined)."
+            #error "franka_robot: could not resolve function-call subsystem entry point (OutputUpdateFcn='none'). Make the Controller subsystem callable (not inlined)."
         %endif
 
         /* Initialize controller model state (atomic Controller subsystem). */
@@ -210,7 +210,7 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    /* Franka Torque Control Block */
+    /* Franka Robot Block */
     
     /* Get enable input */
     real_T enable = %<LibBlockInputSignal(0, "", "", 0)>;

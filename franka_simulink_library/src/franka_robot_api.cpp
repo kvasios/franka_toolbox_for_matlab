@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Franka Robotics GmbH
-// Franka Torque Control API - Implementation
+// Franka Robot API - Implementation
 
-#include "franka_torque_control_api.h"
+#include "franka_robot_api.h"
 
 #include <iostream>
 
@@ -9,9 +9,9 @@
 // Constructor / Destructor
 // ============================================================================
 
-FrankaTorqueControlContext::FrankaTorqueControlContext() = default;
+FrankaRobotContext::FrankaRobotContext() = default;
 
-FrankaTorqueControlContext::~FrankaTorqueControlContext() {
+FrankaRobotContext::~FrankaRobotContext() {
     shutdown();
 }
 
@@ -19,7 +19,7 @@ FrankaTorqueControlContext::~FrankaTorqueControlContext() {
 // Lifecycle Methods
 // ============================================================================
 
-void FrankaTorqueControlContext::initialize(const std::string& robot_ip) {
+void FrankaRobotContext::initialize(const std::string& robot_ip) {
     robot_ip_ = robot_ip;
     
     try {
@@ -40,22 +40,22 @@ void FrankaTorqueControlContext::initialize(const std::string& robot_ip) {
     }
 }
 
-void FrankaTorqueControlContext::setControllerCallback(ControllerCallback callback, void* user_data) {
+void FrankaRobotContext::setControllerCallback(ControllerCallback callback, void* user_data) {
     controller_callback_ = callback;
     controller_user_data_ = user_data;
 }
 
-void FrankaTorqueControlContext::setOutputPointers(double* q_ptr, double* dq_ptr, double* dt_sec_ptr) {
+void FrankaRobotContext::setOutputPointers(double* q_ptr, double* dq_ptr, double* dt_sec_ptr) {
     q_out_ = q_ptr;
     dq_out_ = dq_ptr;
     dt_sec_out_ = dt_sec_ptr;
 }
 
-void FrankaTorqueControlContext::setInputPointers(const double* tau_J_d_ptr) {
+void FrankaRobotContext::setInputPointers(const double* tau_J_d_ptr) {
     tau_J_d_in_ = tau_J_d_ptr;
 }
 
-void FrankaTorqueControlContext::shutdown() {
+void FrankaRobotContext::shutdown() {
     if (running_) {
         requestStop();
     }
@@ -72,7 +72,7 @@ void FrankaTorqueControlContext::shutdown() {
 // Control Methods
 // ============================================================================
 
-void FrankaTorqueControlContext::startControl() {
+void FrankaRobotContext::startControl() {
     if (running_) {
         return;
     }
@@ -80,14 +80,14 @@ void FrankaTorqueControlContext::startControl() {
     stop_requested_ = false;
     running_ = true;
 
-    control_thread_ = std::thread(&FrankaTorqueControlContext::controlThreadFunc, this);
+    control_thread_ = std::thread(&FrankaRobotContext::controlThreadFunc, this);
 }
 
-void FrankaTorqueControlContext::requestStop() {
+void FrankaRobotContext::requestStop() {
     stop_requested_ = true;
 }
 
-bool FrankaTorqueControlContext::isControlRunning() const {
+bool FrankaRobotContext::isControlRunning() const {
     return running_;
 }
 
@@ -95,7 +95,7 @@ bool FrankaTorqueControlContext::isControlRunning() const {
 // Control Thread
 // ============================================================================
 
-void FrankaTorqueControlContext::controlThreadFunc() {
+void FrankaRobotContext::controlThreadFunc() {
     try {
         robot_->control(
             [this](const franka::RobotState& state, franka::Duration period) 
@@ -112,7 +112,7 @@ void FrankaTorqueControlContext::controlThreadFunc() {
     running_ = false;
 }
 
-franka::Torques FrankaTorqueControlContext::controlCallback(
+franka::Torques FrankaRobotContext::controlCallback(
     const franka::RobotState& state,
     franka::Duration period) {
     

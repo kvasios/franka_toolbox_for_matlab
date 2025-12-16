@@ -1,6 +1,6 @@
 #!/bin/bash
 # Package build artifacts into distributable archives
-# Creates bin.zip/bin_arm.zip for common and bin.tar.gz/bin_arm.tar.gz for server
+# Creates bin.tar.gz/bin_arm.tar.gz for server and libfranka.zip/libfranka_arm.zip
 
 set -e
 
@@ -8,14 +8,7 @@ source /scripts/common.sh
 
 log_info "Packaging build artifacts for ${ARCH}..."
 
-COMMON_BIN_PATH="${WORKSPACE}/common/${BIN_FOLDER}"
 SERVER_BIN_PATH="${WORKSPACE}/franka_robot_server/${BIN_FOLDER}"
-
-# Verify build artifacts exist
-if [[ ! -f "$COMMON_BIN_PATH/libfranka_matlab.a" ]]; then
-    log_error "Common library not found at ${COMMON_BIN_PATH}/libfranka_matlab.a"
-    exit 1
-fi
 
 if [[ ! -f "$SERVER_BIN_PATH/franka_robot_server" ]]; then
     log_error "Server executable not found at ${SERVER_BIN_PATH}/franka_robot_server"
@@ -26,16 +19,6 @@ fi
 TEMP_PKG_DIR="/tmp/franka_package"
 rm -rf "$TEMP_PKG_DIR"
 mkdir -p "$TEMP_PKG_DIR"
-
-# Package common library (bin.zip or bin_arm.zip)
-log_info "Creating common library archive..."
-COMMON_ARCHIVE="bin${BIN_SUFFIX}.zip"
-cd "${WORKSPACE}/common"
-zip -r -y "${TEMP_PKG_DIR}/${COMMON_ARCHIVE}" "${BIN_FOLDER}"
-log_info "Created: ${COMMON_ARCHIVE}"
-
-# Copy to output directory
-cp "${TEMP_PKG_DIR}/${COMMON_ARCHIVE}" "${OUTPUT_DIR}/"
 
 # Package server executable (bin.tar.gz or bin_arm.tar.gz)
 log_info "Creating server archive..."
@@ -76,9 +59,7 @@ fi
 
 # Clean up build directories
 log_info "Cleaning up build directories..."
-rm -rf "${COMMON_BIN_PATH}"
 rm -rf "${SERVER_BIN_PATH}"
-rm -rf "${WORKSPACE}/common/build"
 rm -rf "${WORKSPACE}/franka_robot_server/build"
 rm -rf "$TEMP_PKG_DIR"
 
@@ -86,5 +67,3 @@ log_success "Packaging completed!"
 log_info ""
 log_info "Output files in ${OUTPUT_DIR}:"
 ls -la "${OUTPUT_DIR}/"
-
-

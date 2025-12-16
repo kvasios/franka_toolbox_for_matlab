@@ -10,15 +10,13 @@ function makecfg(objBuildInfo)
     if strcmp(get_param(configSet, 'HardwareBoard'), 'NVIDIA Jetson')
         % Add include paths
         addIncludePaths(objBuildInfo, {...
-            fullfile(franka_toolbox_installation_path_get(), 'common', 'include'), ...
+            fullfile(franka_toolbox_installation_path_get(), 'franka_simulink_library', 'include'), ...
             fullfile(franka_toolbox_installation_path_get(), 'libfranka_arm', 'include'), ...
             fullfile(franka_toolbox_installation_path_get(), 'libfranka_arm', 'common', 'include')});
         
-        % Add link objects
-        addLinkObjects(objBuildInfo, ...
-            {'libfranka_matlab.a'}, ...
-            {fullfile(franka_toolbox_installation_path_get(), 'common', 'bin_arm')}, ...
-            1000, true, true);
+        % Add source files (API implementation)
+        addSourceFiles(objBuildInfo, 'franka_robot_api.cpp', ...
+            fullfile(franka_toolbox_installation_path_get(), 'franka_simulink_library', 'src'));
 
         % Handle installation path for Windows
         installation_path = franka_toolbox_installation_path_get();
@@ -67,10 +65,14 @@ function makecfg(objBuildInfo)
         end
     
         addIncludePaths(objBuildInfo,...
-            {fullfile(franka_toolbox_installation_path_get(),'common','include') ...
+            {fullfile(franka_toolbox_installation_path_get(),'franka_simulink_library','include') ...
             fullfile(franka_toolbox_installation_path_get(),'libfranka','include') ...
             fullfile(franka_toolbox_installation_path_get(),'libfranka','common','include')});
         
+        % Add source files (API implementation)
+        addSourceFiles(objBuildInfo, 'franka_robot_api.cpp', ...
+            fullfile(franka_toolbox_installation_path_get(), 'franka_simulink_library', 'src'));
+
         if franka_toolbox_libfranka_system_installation_get()
             addLinkFlags(objBuildInfo,{['-Wl,-rpath,"','/opt/openrobots/lib','"']});
             addSysLibPaths(objBuildInfo,{'/opt/openrobots/lib'});
@@ -81,8 +83,6 @@ function makecfg(objBuildInfo)
         end
         
         addSysLibs(objBuildInfo,{'franka'});
-        addLinkObjects(objBuildInfo,{'libfranka_matlab'},{fullfile(franka_toolbox_installation_path_get(),'common','bin')},1000,true,true);
-
     end
 
 end

@@ -10,8 +10,6 @@
 **/bin_arm/
 
 # Existing archives (optional - comment out to use cached builds)
-# common/bin.zip
-# common/bin_arm.zip
 # franka_robot_server/bin.tar.gz
 # franka_robot_server/bin_arm.tar.gz
 # dependencies/libfranka.zip
@@ -50,4 +48,3 @@ Thumbs.db
 # libfranka source (will be cloned fresh in container)
 libfranka/
 libfranka_arm/
-

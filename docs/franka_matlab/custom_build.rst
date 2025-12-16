@@ -28,7 +28,6 @@ Server binaries are built using Docker, which handles all dependencies automatic
 
 **Output files:**
 
-- ``common/bin.zip``, ``common/bin_arm.zip`` — Common library
 - ``franka_robot_server/bin.tar.gz``, ``franka_robot_server/bin_arm.tar.gz`` — Server executable
 - ``dependencies/libfranka.zip``, ``dependencies/libfranka_arm.zip`` — libfranka with dependencies
 
@@ -106,4 +105,3 @@ CI/CD Reference
 ---------------
 
 For a complete automated build example, see ``.github/workflows/build-and-release.yml`` which builds for all platforms and creates release packages.
-

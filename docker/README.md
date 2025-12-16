@@ -15,8 +15,6 @@ cd docker
 
 | File | Description |
 |------|-------------|
-| `common/bin.zip` | x86_64 common library |
-| `common/bin_arm.zip` | ARM64 common library |
 | `franka_robot_server/bin.tar.gz` | x86_64 server |
 | `franka_robot_server/bin_arm.tar.gz` | ARM64 server |
 | `dependencies/libfranka.zip` | x86_64 libfranka |

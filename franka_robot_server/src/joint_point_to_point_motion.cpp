@@ -4,7 +4,6 @@
 #include <franka/control_types.h>
 #include <array>
 #include <cmath>
-#include "franka_matlab_robot_utils.h"
 #include <iostream>
 
 kj::Promise<void> FrankaRobotRPCServiceImpl::jointPointToPointMotion(

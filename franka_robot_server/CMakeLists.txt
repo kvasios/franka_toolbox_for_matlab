@@ -13,7 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Set default libfranka folder name
 set(FRANKA_FOLDER "libfranka" CACHE STRING "Path to libfranka directory")
 
-# Define Franka paths explicitly (similar to common/CMakeLists.txt)
+# Define Franka paths explicitly
 set(Franka_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../${FRANKA_FOLDER}/include)
 set(Franka_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/../${FRANKA_FOLDER}/build/libfranka${CMAKE_SHARED_LIBRARY_SUFFIX})
 
@@ -39,15 +39,8 @@ endif()
 include_directories(${CAPNP_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${EIGEN3_INCLUDE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../common/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../${FRANKA_FOLDER}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../${FRANKA_FOLDER}/common/include)
-
-# Set default bin directory
-set(BIN_FOLDER "bin" CACHE STRING "Binary directory (bin or bin_arm)")
-
-# Add path to libfranka_matlab.a
-link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../common/${BIN_FOLDER})
 
 # Locate the Cap'n Proto schema
 set(CAPNP_SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/interface/rpc.capnp")
@@ -87,15 +80,4 @@ target_link_libraries(franka_robot_server PRIVATE
     CapnProto::capnp 
     CapnProto::capnp-rpc 
     ${Franka_LIBRARIES}
-    franka_matlab
 )
-
-
-# # Optionally, add the example_mex executable if needed
-# add_executable(example_mex cpp/example_mex.cpp ${RPC_SRCS} ${RPC_HDRS})
-# target_include_directories(example_mex PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-# target_link_libraries(example_mex PRIVATE CapnProto::capnp CapnProto::capnp-rpc)
-
-# # Install targets (optional)
-# install(TARGETS franka_robot_server
-#         RUNTIME DESTINATION bin) z

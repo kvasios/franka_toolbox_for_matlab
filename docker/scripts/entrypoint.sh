@@ -64,10 +64,6 @@ while [[ $# -gt 0 ]]; do
             BUILD_TARGET="libfranka"
             shift
             ;;
-        common)
-            BUILD_TARGET="common"
-            shift
-            ;;
         server)
             BUILD_TARGET="server"
             shift
@@ -78,7 +74,6 @@ while [[ $# -gt 0 ]]; do
             echo "Targets:"
             echo "  all         Build everything (default)"
             echo "  libfranka   Build only libfranka"
-            echo "  common      Build only common library"
             echo "  server      Build only franka_robot_server"
             echo ""
             echo "Options:"
@@ -151,15 +146,11 @@ mkdir -p "$OUTPUT_DIR"
 case $BUILD_TARGET in
     all)
         /scripts/build_libfranka.sh
-        /scripts/build_common.sh
         /scripts/build_server.sh
         /scripts/package.sh
         ;;
     libfranka)
         /scripts/build_libfranka.sh
-        ;;
-    common)
-        /scripts/build_common.sh
         ;;
     server)
         /scripts/build_server.sh
@@ -167,5 +158,3 @@ case $BUILD_TARGET in
 esac
 
 log_success "Build completed successfully!"
-
-

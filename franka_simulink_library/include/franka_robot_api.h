@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Franka Robotics GmbH
-// Franka Torque Control API - Header
+// Franka Robot API - Header
 //
 // This provides the interface between Simulink code generation and libfranka
 // for torque control with function-call subsystem pattern.
@@ -9,8 +9,8 @@
 //   controller function via a function pointer. No thread synchronization needed -
 //   the controller code runs IN the 1kHz control thread.
 
-#ifndef FRANKA_TORQUE_CONTROL_API_H
-#define FRANKA_TORQUE_CONTROL_API_H
+#ifndef FRANKA_ROBOT_API_H
+#define FRANKA_ROBOT_API_H
 
 #include <array>
 #include <atomic>
@@ -31,7 +31,7 @@
 using ControllerCallback = void (*)(void* user_data, double dt_sec);
 
 /**
- * @brief Context class for Franka robot torque control
+ * @brief Context class for Franka robot control
  * 
  * Execution model:
  *   1. startControl() spawns a thread that calls robot.control()
@@ -44,16 +44,16 @@ using ControllerCallback = void (*)(void* user_data, double dt_sec);
  * 
  * The controller callback runs IN the control thread context - no sync needed.
  */
-class FrankaTorqueControlContext {
+class FrankaRobotContext {
 public:
-    FrankaTorqueControlContext();
-    ~FrankaTorqueControlContext();
+    FrankaRobotContext();
+    ~FrankaRobotContext();
     
     // Non-copyable, non-movable
-    FrankaTorqueControlContext(const FrankaTorqueControlContext&) = delete;
-    FrankaTorqueControlContext& operator=(const FrankaTorqueControlContext&) = delete;
-    FrankaTorqueControlContext(FrankaTorqueControlContext&&) = delete;
-    FrankaTorqueControlContext& operator=(FrankaTorqueControlContext&&) = delete;
+    FrankaRobotContext(const FrankaRobotContext&) = delete;
+    FrankaRobotContext& operator=(const FrankaRobotContext&) = delete;
+    FrankaRobotContext(FrankaRobotContext&&) = delete;
+    FrankaRobotContext& operator=(FrankaRobotContext&&) = delete;
     
     // ========================================================================
     // Lifecycle (called from TLC Start/Terminate)
@@ -139,4 +139,4 @@ private:
     const double* tau_J_d_in_{nullptr};
 };
 
-#endif // FRANKA_TORQUE_CONTROL_API_H
+#endif // FRANKA_ROBOT_API_H
