@@ -34,10 +34,11 @@ function franka_mltbx_package(options)
     %% Clean-up env
     % In CI mode, preserve existing .mltbx files (for multi-package builds)
     dist_dir = fullfile(project_root, 'dist');
+    dist_content_dirname = 'franka_toolbox_dist_content';
     if ci_mode && exist(dist_dir, 'dir')
         fprintf('CI mode: preserving existing .mltbx files in dist/\n');
-        % Only remove franka_matlab subfolder, keep .mltbx files
-        rm_dir(fullfile(dist_dir, 'franka_matlab'));
+        % Only remove the distribution content subfolder, keep .mltbx files
+        rm_dir(fullfile(dist_dir, dist_content_dirname));
     else
         rm_dir(dist_dir);
     end
@@ -56,7 +57,7 @@ function franka_mltbx_package(options)
     end
 
     %% Copy the Project
-    target_dir = fullfile(dist_dir, 'franka_matlab');
+    target_dir = fullfile(dist_dir, dist_content_dirname);
     
     % Create dist directory if it doesn't exist
     if ~exist(dist_dir, 'dir')

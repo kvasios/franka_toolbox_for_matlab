@@ -1,4 +1,4 @@
-dist/franka_matlab
+dist/franka_toolbox_dist_content
 tmp/
 # But include the distribution file for releases
 !dist/franka.mltbx
