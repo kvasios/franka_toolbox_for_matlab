@@ -18,7 +18,11 @@
  * Copyright (c) 2025 Franka Robotics GmbH
  */
 
-#define S_FUNCTION_NAME  franka_robot
+/* NOTE:
+ * This S-function is intentionally NOT named "franka_robot" to avoid
+ * collisions with the MATLAB API MEX file `franka_robot.mex*`.
+ */
+#define S_FUNCTION_NAME  franka_robot_sfunction
 #define S_FUNCTION_LEVEL 2
 
 #include "simstruc.h"

@@ -12,18 +12,17 @@ find_package(Matlab REQUIRED)
 # ============================================================================
 # MEX S-Function (for Simulink simulation)
 # ============================================================================
-set(franka_simulink_SRC
-    "blocks/franka_robot.cpp"
-)
-
 set(Matlab_INCLUDE_DIRS 
      ${Matlab_INCLUDE_DIRS}
      ${Matlab_ROOT_DIR}/simulink/include
 )
 
-foreach(franka_simulink_function ${franka_simulink_SRC})
-     get_filename_component(sfunction ${franka_simulink_function} NAME_WLE [CACHE])
-     matlab_add_mex(NAME ${sfunction} 
-          SRC ${franka_simulink_function}
-     )
-endforeach()
+#
+# IMPORTANT: do NOT name this S-function "franka_robot" because the toolbox also
+# builds a MATLAB API MEX with that name (franka_matlab/bin/franka_robot.mex*),
+# and MATLAB path resolution can cause Simulink to load the wrong binary.
+#
+matlab_add_mex(
+     NAME franka_robot_sfunction
+     SRC "blocks/franka_robot.cpp"
+)

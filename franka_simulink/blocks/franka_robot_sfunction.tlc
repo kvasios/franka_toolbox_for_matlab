@@ -6,7 +6,7 @@
 %%
 %%  robot_ip is provided via input port 1 (not as a parameter).
 %%
-%implements "franka_robot" "C"
+%implements "franka_robot_sfunction" "C"
 
 %% ========================================================================
 %% BlockTypeSetup - Called once per block type
