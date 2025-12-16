@@ -1,4 +1,5 @@
 #include "franka_robot_server/franka_robot_rpc_service.hpp"
+#include "franka_robot_server/motion_generator.hpp"
 #include <franka/exception.h>
 #include <franka/robot.h>
 #include <franka/control_types.h>
