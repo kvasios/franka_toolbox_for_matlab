@@ -24,8 +24,15 @@
 {
     %openfile buffer
     
-    /* Franka Robot Context */
-    FrankaRobotContext franka_ctx;
+    /* Franka Robot Context (per block instance).
+     *
+     * IMPORTANT:
+     * Do NOT use a single global context for the whole model, because multiple
+     * Franka Robot block instances would then overwrite each other's callback,
+     * I/O pointers, and control thread state — causing very erratic behavior.
+     */
+    %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    FrankaRobotContext %<ctxName>;
 
     %closefile buffer
     %<LibCacheGlobalPrmData(buffer)>
@@ -37,10 +44,11 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
+    %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
     /* Initialize Franka Robot Context
      * robot_ip comes from input port 1 as ASCII string (null-terminated)
      */
-    franka_ctx.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
+    %<ctxName>.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
 
     /* Resolve the function-call subsystem entry-point we should invoke from the
      * libfranka 1kHz callback.
@@ -82,7 +90,7 @@
                     rtm->errorStatus = nullptr;
                 }
 
-                franka_ctx.setControllerCallback(
+                %<ctxName>.setControllerCallback(
                     +[](void* user_data, double dt_sec) {
                         auto ctrl = static_cast<decltype(this)>(user_data);
 
@@ -112,7 +120,7 @@
                  * the main scheduler already advances the global RTM timing each step.
                  * Advancing it here would double-count time.
                  */
-                franka_ctx.setControllerCallback(
+                %<ctxName>.setControllerCallback(
                     +[](void* /*user_data*/, double /*dt_sec*/) {
                         %<ctrlFcnName>();
                     },
@@ -182,22 +190,22 @@
                 franka_controller_model.%<ctrlEnableFcn>();
             %endif
 
-            franka_ctx.setOutputPointers(
+            %<ctxName>.setOutputPointers(
                 %<qExprCtrl>,   /* q [7] */
                 %<dqExprCtrl>,  /* dq [7] */
                 %<dtExprCtrl>   /* dt_sec [1] */
             );
-            franka_ctx.setInputPointers(
+            %<ctxName>.setInputPointers(
                 %<tauExprCtrl>  /* tau_J_d [7] */
             );
         %else
             /* In nonreusable function packaging, just use the generated block signals directly. */
-            franka_ctx.setOutputPointers(
+            %<ctxName>.setOutputPointers(
                 %<qExpr>,   /* q [7] */
                 %<dqExpr>,  /* dq [7] */
                 %<dtExpr>   /* dt_sec [1] */
             );
-            franka_ctx.setInputPointers(
+            %<ctxName>.setInputPointers(
                 %<tauExpr>  /* tau_J_d [7] */
             );
         %endif
@@ -214,6 +222,7 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
+    %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
     /* Franka Robot Block */
     
     /* Get enable input */
@@ -228,13 +237,13 @@
     %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
     
     /* Handle state transitions */
-    if (rising_edge && !franka_ctx.isControlRunning()) {
+    if (rising_edge && !%<ctxName>.isControlRunning()) {
         /* Start control loop on rising edge */
-        franka_ctx.startControl();
+        %<ctxName>.startControl();
     }
-    else if (falling_edge && franka_ctx.isControlRunning()) {
+    else if (falling_edge && %<ctxName>.isControlRunning()) {
         /* Request stop on falling edge (graceful) */
-        franka_ctx.requestStop();
+        %<ctxName>.requestStop();
     }
 }
 %endfunction
@@ -244,7 +253,8 @@
 %% ========================================================================
 %function Terminate(block, system) Output
 {
+    %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
     /* Shutdown Franka control */
-    franka_ctx.shutdown();
+    %<ctxName>.shutdown();
 }
 %endfunction
