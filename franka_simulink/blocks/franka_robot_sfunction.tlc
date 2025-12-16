@@ -37,51 +37,13 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
-    /* Dedicated controller model instance.
-     *
-     * This instance is ONLY used by the libfranka 1kHz control thread to run the
-     * atomic Controller subsystem as a callable function. The main thread may
-     * still run the top-level model instance for enable/disable logic, logging,
-     * etc, without racing on controller state.
+    /* Initialize Franka Robot Context
+     * robot_ip comes from input port 1 as ASCII string (null-terminated)
      */
-    using FrankaControllerModelT = std::remove_reference<decltype(*this)>::type;
-    static FrankaControllerModelT franka_controller_model;
-
-    /* Initialize controller-model timing/state.
-     *
-     * The dedicated controller instance is NOT run by the Simulink scheduler,
-     * so we must explicitly initialize its Controller subsystem and maintain
-     * its timebase from the libfranka 1kHz callback. If we don't, its states
-     * and Timing fields may be uninitialized, causing erratic/unsafe torques.
-     */
-    {
-        auto* rtm = franka_controller_model.getRTM();
-        rtm->Timing.stepSize0 = 0.001;  /* 1kHz nominal */
-        rtm->Timing.taskTime0 = 0.0;
-        rtm->Timing.clockTick0 = 0U;
-        rtm->Timing.clockTickH0 = 0U;
-        rtm->Timing.stopRequestedFlag = false;
-        rtm->Timing.tFinal = -1;
-        rtm->errorStatus = nullptr;
-    }
-
-    /* Initialize Franka Robot Context */
-    /* robot_ip comes from input port 1 as ASCII string (null-terminated) */
     franka_ctx.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
 
-    /* Register controller callback (1kHz, libfranka control thread).
-     *
-     * We intentionally avoid LibGetFcnCallISR/LibBlockExecuteFcnCall here:
-     * those require TLC driver-scoped symbols (e.g. BlockIdx/BlockId) and/or
-     * can expand to inline code that depends on the model-step context.
-     *
-     * Instead, we call the generated Controller *member function* on the
-     * current model instance ("this") via a free-function trampoline.
-     *
-     * Requirements:
-     * - The function-call subsystem (Controller) must be generated as a callable
-     *   function (not fully inlined into step). In C++ class interface mode,
-     *   this will typically be a method like: this->motion_with_control_Controller().
+    /* Resolve the function-call subsystem entry-point we should invoke from the
+     * libfranka 1kHz callback.
      */
     %assign callIdx = 0
     %assign recIdx = block.SFcnSystemOutputCallMappingInfo[callIdx].StartingIdx
@@ -96,34 +58,67 @@
             %assign ctrlFcnName = ""
         %endif
         %if !LibIsEqual(ctrlFcnName, "")
-            franka_ctx.setControllerCallback(
-                +[](void* user_data, double dt_sec) {
-                    auto ctrl = static_cast<decltype(this)>(user_data);
+            %if GenerateClassInterface
+                /* C++ class interface packaging:
+                 * Create a dedicated controller model object that is ONLY touched by
+                 * the libfranka 1kHz control thread. This avoids races with the main
+                 * scheduler running the top-level model (enable/disable, logging, etc.).
+                 */
+                using FrankaControllerModelT = std::remove_reference<decltype(*this)>::type;
+                static FrankaControllerModelT franka_controller_model;
 
-                    /* Advance controller-model timebase FIRST (libfranka convention).
-                     *
-                     * dt_sec is the time elapsed since the previous callback (franka::Duration):
-                     *   - First callback: dt_sec=0 (no previous callback), taskTime0 stays at 0
-                     *   - Subsequent callbacks: dt_sec≈0.001s (can be ~0.002s on jitter)
-                     *
-                     * This matches libfranka examples: time += period.toSec() at callback start.
-                     * stepSize0 stays constant at 0.001 (nominal); only taskTime0 changes.
-                     */
-                    {
-                        auto* rtm = ctrl->getRTM();
-                        if (dt_sec > 0.0) {
-                            rtm->Timing.taskTime0 += dt_sec;
-                        }
-                        if (!(++rtm->Timing.clockTick0)) {
-                            ++rtm->Timing.clockTickH0;
-                        }
-                    }
+                /* Initialize controller-model timing/state. The dedicated controller
+                 * instance is NOT run by the Simulink scheduler, so we explicitly
+                 * initialize its timing fields and advance its timebase in the callback.
+                 */
+                {
+                    auto* rtm = franka_controller_model.getRTM();
+                    rtm->Timing.stepSize0 = 0.001;  /* 1kHz nominal */
+                    rtm->Timing.taskTime0 = 0.0;
+                    rtm->Timing.clockTick0 = 0U;
+                    rtm->Timing.clockTickH0 = 0U;
+                    rtm->Timing.stopRequestedFlag = false;
+                    rtm->Timing.tFinal = -1;
+                    rtm->errorStatus = nullptr;
+                }
 
-                    /* Now run the controller with the updated time */
-                    ctrl->%<ctrlFcnName>();
-                },
-                &franka_controller_model
-            );
+                franka_ctx.setControllerCallback(
+                    +[](void* user_data, double dt_sec) {
+                        auto ctrl = static_cast<decltype(this)>(user_data);
+
+                        /* Advance controller-model timebase FIRST (libfranka convention). */
+                        {
+                            auto* rtm = ctrl->getRTM();
+                            if (dt_sec > 0.0) {
+                                rtm->Timing.taskTime0 += dt_sec;
+                            }
+                            if (!(++rtm->Timing.clockTick0)) {
+                                ++rtm->Timing.clockTickH0;
+                            }
+                        }
+
+                        /* Now run the controller with the updated time */
+                        ctrl->%<ctrlFcnName>();
+                    },
+                    &franka_controller_model
+                );
+            %else
+                /* Nonreusable function packaging (External Mode friendly):
+                 *
+                 * There is no model object / 'this' context. The controller entry-point
+                 * is a normal function that operates on the generated global model data.
+                 *
+                 * IMPORTANT: We do NOT manually advance the model timebase here because
+                 * the main scheduler already advances the global RTM timing each step.
+                 * Advancing it here would double-count time.
+                 */
+                franka_ctx.setControllerCallback(
+                    +[](void* /*user_data*/, double /*dt_sec*/) {
+                        %<ctrlFcnName>();
+                    },
+                    nullptr
+                );
+            %endif
         %endif
         %if LibIsEqual(ctrlFcnName, "")
             /*
@@ -139,64 +134,73 @@
             #error "franka_robot: could not resolve function-call subsystem entry point (OutputUpdateFcn='none'). Make the Controller subsystem callable (not inlined)."
         %endif
 
-        /* Initialize controller model state (atomic Controller subsystem). */
-        %assign ctrlInitFcn = ""
-        %assign ctrlEnableFcn = ""
-        %assign ctrlSysInitFcn = ""
-        %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "InitializeFcn")
-            %assign ctrlInitFcn = ::CompiledModel.System[ctrlSysIdx].InitializeFcn
-        %endif
-        %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "SystemInitializeFcn")
-            %assign ctrlSysInitFcn = ::CompiledModel.System[ctrlSysIdx].SystemInitializeFcn
-        %endif
-        %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "EnableFcn")
-            %assign ctrlEnableFcn = ::CompiledModel.System[ctrlSysIdx].EnableFcn
-        %endif
-        %if FEVAL("strncmp", ctrlInitFcn, "none", 4)
-            %assign ctrlInitFcn = ""
-        %endif
-        %if FEVAL("strncmp", ctrlSysInitFcn, "none", 4)
-            %assign ctrlSysInitFcn = ""
-        %endif
-        %if FEVAL("strncmp", ctrlEnableFcn, "none", 4)
-            %assign ctrlEnableFcn = ""
-        %endif
-        %if !LibIsEqual(ctrlInitFcn, "")
-            franka_controller_model.%<ctrlInitFcn>();
-        %endif
-        %if LibIsEqual(ctrlInitFcn, "") && !LibIsEqual(ctrlSysInitFcn, "")
-            franka_controller_model.%<ctrlSysInitFcn>();
-        %endif
-        %if !LibIsEqual(ctrlEnableFcn, "")
-            franka_controller_model.%<ctrlEnableFcn>();
-        %endif
-
-        /* Wire Franka <-> controller-model signals.
-         *
-         * We reuse the generated signal address expressions for this S-function
-         * (in the current model instance) and rewrite them to point at the
-         * dedicated controller model instance.
-         */
+        /* Wire Franka <-> Simulink signals. */
         %assign bsMember = "%<::CompiledModel.Name>_B"
         %assign qExpr  = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
         %assign dqExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
         %assign dtExpr = "%<LibBlockOutputSignalAddr(3, "", "", 0)>"
         %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
-        %assign fromPrefix = "&%<bsMember>."
-        %assign toPrefix = "&franka_controller_model.%<bsMember>."
-        %assign qExprCtrl = FEVAL("strrep", qExpr, fromPrefix, toPrefix)
-        %assign dqExprCtrl = FEVAL("strrep", dqExpr, fromPrefix, toPrefix)
-        %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
-        %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
 
-        franka_ctx.setOutputPointers(
-            %<qExprCtrl>,   /* q [7] */
-            %<dqExprCtrl>,  /* dq [7] */
-            %<dtExprCtrl>   /* dt_sec [1] */
-        );
-        franka_ctx.setInputPointers(
-            %<tauExprCtrl>  /* tau_J_d [7] */
-        );
+        %if GenerateClassInterface
+            /* In class interface packaging, redirect I/O to the dedicated controller object. */
+            %assign fromPrefix = "&%<bsMember>."
+            %assign toPrefix = "&franka_controller_model.%<bsMember>."
+            %assign qExprCtrl = FEVAL("strrep", qExpr, fromPrefix, toPrefix)
+            %assign dqExprCtrl = FEVAL("strrep", dqExpr, fromPrefix, toPrefix)
+            %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
+            %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
+
+            /* Initialize controller model state (atomic Controller subsystem). */
+            %assign ctrlInitFcn = ""
+            %assign ctrlEnableFcn = ""
+            %assign ctrlSysInitFcn = ""
+            %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "InitializeFcn")
+                %assign ctrlInitFcn = ::CompiledModel.System[ctrlSysIdx].InitializeFcn
+            %endif
+            %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "SystemInitializeFcn")
+                %assign ctrlSysInitFcn = ::CompiledModel.System[ctrlSysIdx].SystemInitializeFcn
+            %endif
+            %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "EnableFcn")
+                %assign ctrlEnableFcn = ::CompiledModel.System[ctrlSysIdx].EnableFcn
+            %endif
+            %if FEVAL("strncmp", ctrlInitFcn, "none", 4)
+                %assign ctrlInitFcn = ""
+            %endif
+            %if FEVAL("strncmp", ctrlSysInitFcn, "none", 4)
+                %assign ctrlSysInitFcn = ""
+            %endif
+            %if FEVAL("strncmp", ctrlEnableFcn, "none", 4)
+                %assign ctrlEnableFcn = ""
+            %endif
+            %if !LibIsEqual(ctrlInitFcn, "")
+                franka_controller_model.%<ctrlInitFcn>();
+            %endif
+            %if LibIsEqual(ctrlInitFcn, "") && !LibIsEqual(ctrlSysInitFcn, "")
+                franka_controller_model.%<ctrlSysInitFcn>();
+            %endif
+            %if !LibIsEqual(ctrlEnableFcn, "")
+                franka_controller_model.%<ctrlEnableFcn>();
+            %endif
+
+            franka_ctx.setOutputPointers(
+                %<qExprCtrl>,   /* q [7] */
+                %<dqExprCtrl>,  /* dq [7] */
+                %<dtExprCtrl>   /* dt_sec [1] */
+            );
+            franka_ctx.setInputPointers(
+                %<tauExprCtrl>  /* tau_J_d [7] */
+            );
+        %else
+            /* In nonreusable function packaging, just use the generated block signals directly. */
+            franka_ctx.setOutputPointers(
+                %<qExpr>,   /* q [7] */
+                %<dqExpr>,  /* dq [7] */
+                %<dtExpr>   /* dt_sec [1] */
+            );
+            franka_ctx.setInputPointers(
+                %<tauExpr>  /* tau_J_d [7] */
+            );
+        %endif
     %endif
     
     /* Initialize DWork state (for enable edge detection in main model). */
