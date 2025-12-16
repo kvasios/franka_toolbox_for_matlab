@@ -1,4 +1,4 @@
-function wontdo = franka_toolbox_libfranka_remote_build(user,ip,port,libfranka_version,force_install)
+function wontdo = franka_libfranka_remote_build(user,ip,port,libfranka_version,force_install)
     %  Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
@@ -16,11 +16,11 @@ function wontdo = franka_toolbox_libfranka_remote_build(user,ip,port,libfranka_v
     libfranka_version_remote = '';
     if ~force_install
         fprintf('Checking remote libfranka version...\n');
-        libfranka_version_remote = franka_toolbox_libfranka_remote_build_check(user, ip, port, '~');
+        libfranka_version_remote = franka_libfranka_remote_build_check(user, ip, port, '~');
         fprintf('Remote libfranka version: %s\n', libfranka_version_remote);
     end
 
-    libfranka_path = fullfile(franka_toolbox_installation_path_get(),'libfranka_arm');
+    libfranka_path = fullfile(franka_installation_path_get(),'libfranka_arm');
 
     if isempty(libfranka_version_remote) || force_install || ~strcmp(libfranka_version_remote,libfranka_version)  
         wontdo = false;
@@ -31,22 +31,22 @@ function wontdo = franka_toolbox_libfranka_remote_build(user,ip,port,libfranka_v
         end
         
         fprintf('Building libfranka locally...\n');
-        franka_toolbox_libfranka_build(libfranka_version,true,true,'libfranka_arm');
+        franka_libfranka_build(libfranka_version,true,true,'libfranka_arm');
         
         fprintf('Cleaning remote libfranka directory...\n');
         sshOpts = struct('verbose', true, 'nothrow', false);
-        franka_toolbox_ssh_exec('rm -rf ~/libfranka', user, ip, port, sshOpts);
+        franka_ssh_exec('rm -rf ~/libfranka', user, ip, port, sshOpts);
         
         fprintf('Copying libfranka to remote machine...\n');
         scpOpts = struct('recursive', true, 'verbose', true, 'nothrow', false);
-        franka_toolbox_scp(libfranka_path, ':~/libfranka', user, ip, port, scpOpts);
+        franka_scp(libfranka_path, ':~/libfranka', user, ip, port, scpOpts);
         
         fprintf('Running CMake configuration on remote machine...\n');
         cmake_cmd = 'cd ~/libfranka/build && cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="/opt/openrobots/lib/cmake" ..';
-        franka_toolbox_ssh_exec(cmake_cmd, user, ip, port, sshOpts);
+        franka_ssh_exec(cmake_cmd, user, ip, port, sshOpts);
         
         fprintf('Building libfranka on remote machine...\n');
-        franka_toolbox_ssh_exec('cd ~/libfranka/build && cmake --build .', user, ip, port, sshOpts);
+        franka_ssh_exec('cd ~/libfranka/build && cmake --build .', user, ip, port, sshOpts);
         
         fprintf('Cleaning up local libfranka_arm directory...\n');
         rmdir(libfranka_path,'s');
@@ -54,12 +54,12 @@ function wontdo = franka_toolbox_libfranka_remote_build(user,ip,port,libfranka_v
 
     fprintf('Copying built libfranka from remote machine...\n');
     scpOpts = struct('recursive', true, 'verbose', true, 'nothrow', false);
-    franka_toolbox_scp(':~/libfranka', libfranka_path, user, ip, port, scpOpts);
+    franka_scp(':~/libfranka', libfranka_path, user, ip, port, scpOpts);
 
     fprintf('Bundling libfranka runtime dependencies...\n');
-    franka_toolbox_libfranka_deps_bundle(user,ip,port);
+    franka_libfranka_deps_bundle(user,ip,port);
 
     fprintf('Packing libfranka...\n');
-    franka_toolbox_libfranka_pack(true);
+    franka_libfranka_pack(true);
         
 end

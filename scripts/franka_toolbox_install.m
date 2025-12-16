@@ -31,7 +31,7 @@ function franka_toolbox_install()
 
     %% Helper Functions
     function unpackBinaries()
-        installation_path = franka_toolbox_installation_path_get();
+        installation_path = franka_installation_path_get();
 
         % Unzip Simulink binaries
         franka_simulink_path = fullfile(installation_path, 'franka_simulink');
@@ -85,6 +85,6 @@ function franka_toolbox_install()
         sl_refresh_customizations();
         
         % Configure libfranka installation (default: local)
-        franka_toolbox_libfranka_system_installation_set(false);
+        franka_libfranka_system_installation_set(false);
     end
 end

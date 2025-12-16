@@ -1,4 +1,4 @@
-function franka_toolbox_libfranka_deps_bundle(user,ip,port)
+function franka_libfranka_deps_bundle(user,ip,port)
     %  Copyright (c) 2024 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
@@ -11,12 +11,12 @@ function franka_toolbox_libfranka_deps_bundle(user,ip,port)
     libfranka_ver = split(libfranka_ver{1}, '.');
     libfranka = ['libfranka.so.',strjoin(libfranka_ver(1:2),'.')];
 
-    linuxdeploy_appimage = franka_toolbox_linuxdeploy_get();
+    linuxdeploy_appimage = franka_linuxdeploy_get();
 
     if nargin == 0
         if isunix()
             
-            libfranka_path = fullfile(franka_toolbox_installation_path_get(),'libfranka','build');
+            libfranka_path = fullfile(franka_installation_path_get(),'libfranka','build');
             
             cmd = [linuxdeploy_appimage{1},...
                 ' --appdir=',libfranka_path,...
@@ -24,15 +24,15 @@ function franka_toolbox_libfranka_deps_bundle(user,ip,port)
                 ' --library=',fullfile(libfranka_path,libfranka)];
 
             opts = struct('verbose', true);
-            franka_toolbox_local_exec(cmd, '.', opts);
+            franka_local_exec(cmd, '.', opts);
         end
     else
         % Check if linuxdeploy has been extracted on remote system
         % If not, install it first
-        [status, ~] = franka_toolbox_ssh_exec('ls -d ~/franka-dev-tools/squashfs-root 2>/dev/null', user, ip, port);
+        [status, ~] = franka_ssh_exec('ls -d ~/franka-dev-tools/squashfs-root 2>/dev/null', user, ip, port);
         if status ~= 0
             % linuxdeploy not extracted, install it
-            franka_toolbox_linuxdeploy_install(user, ip, port);
+            franka_linuxdeploy_install(user, ip, port);
         end
         
         libfranka_remote_path = '\$HOME/libfranka/build';
@@ -42,12 +42,12 @@ function franka_toolbox_libfranka_deps_bundle(user,ip,port)
             ' --library=',fullfile(libfranka_remote_path,libfranka)];
 
         sshOpts = struct('verbose', true, 'nothrow', false);
-        franka_toolbox_ssh_exec(cmd, user, ip, port, sshOpts);
+        franka_ssh_exec(cmd, user, ip, port, sshOpts);
         
         % Copy usr folder from remote
         scpOpts = struct('recursive', true, 'verbose', true, 'nothrow', false);
-        franka_toolbox_scp(':~/libfranka/build/usr', ...
-            fullfile(franka_toolbox_installation_path_get(),'libfranka_arm','build'), ...
+        franka_scp(':~/libfranka/build/usr', ...
+            fullfile(franka_installation_path_get(),'libfranka_arm','build'), ...
             user, ip, port, scpOpts);
     end
 

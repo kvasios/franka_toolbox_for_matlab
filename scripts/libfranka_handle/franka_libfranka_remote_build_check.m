@@ -1,4 +1,4 @@
-function libfranka_version = franka_toolbox_libfranka_remote_build_check(username, ip, port, workspace_dir)
+function libfranka_version = franka_libfranka_remote_build_check(username, ip, port, workspace_dir)
     %  Copyright (c) 2024 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package

@@ -1,9 +1,9 @@
-function [status, output] = franka_toolbox_local_exec(cmd, path, options)
+function [status, output] = franka_local_exec(cmd, path, options)
     %FRANKA_TOOLBOX_LOCAL_EXEC Execute a command locally in a specified directory
     %
-    %   [status, output] = franka_toolbox_local_exec(cmd)
-    %   [status, output] = franka_toolbox_local_exec(cmd, path)
-    %   [status, output] = franka_toolbox_local_exec(cmd, path, options)
+    %   [status, output] = franka_local_exec(cmd)
+    %   [status, output] = franka_local_exec(cmd, path)
+    %   [status, output] = franka_local_exec(cmd, path, options)
     %
     %   Inputs:
     %       cmd      - Command to execute
@@ -23,11 +23,11 @@ function [status, output] = franka_toolbox_local_exec(cmd, path, options)
     %
     %   Examples:
     %       % Run cmake in build directory
-    %       [s, o] = franka_toolbox_local_exec('cmake ..', '/path/to/build');
+    %       [s, o] = franka_local_exec('cmake ..', '/path/to/build');
     %       
     %       % Run with verbose output
     %       opts.verbose = true;
-    %       franka_toolbox_local_exec('make', '/path/to/project', opts);
+    %       franka_local_exec('make', '/path/to/project', opts);
     %
     %   Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %   This file is subject to the terms and conditions defined in the file

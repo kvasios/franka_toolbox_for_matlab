@@ -1,9 +1,9 @@
-function libfranka_version = franka_toolbox_libfranka_build_local_check()
+function libfranka_version = franka_libfranka_build_local_check()
     %  Copyright (c) 2024 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
     
-    path = franka_toolbox_installation_path_get();
+    path = franka_installation_path_get();
     
     libfranka_version = '';
 

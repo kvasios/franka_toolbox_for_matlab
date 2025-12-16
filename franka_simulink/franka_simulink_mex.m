@@ -4,7 +4,7 @@ function franka_simulink_mex()
     %  'LICENSE' , which is part of this package
 
     % Get the installation path
-    installation_path = franka_toolbox_installation_path_get();
+    installation_path = franka_installation_path_get();
     
     % Set paths
     simulink_lib_path = fullfile(installation_path, 'franka_simulink');
@@ -34,21 +34,21 @@ function franka_simulink_mex()
         opts = struct('nothrow', false);
         if ispc
             % For Windows, specify Visual Studio generator with verbose output
-            [~, output] = franka_toolbox_local_exec('cmake -G "Visual Studio 17 2022" -A x64 ..', build_dir, opts);
+            [~, output] = franka_local_exec('cmake -G "Visual Studio 17 2022" -A x64 ..', build_dir, opts);
             disp(output);
             
             % Build using CMake with verbose output
             disp('Building library...');
-            [~, output] = franka_toolbox_local_exec('cmake --build . --config Release --verbose', build_dir, opts);
+            [~, output] = franka_local_exec('cmake --build . --config Release --verbose', build_dir, opts);
             disp(output);
         else
             % For Unix systems (Linux/macOS)
-            [~, output] = franka_toolbox_local_exec('cmake ..', build_dir, opts);
+            [~, output] = franka_local_exec('cmake ..', build_dir, opts);
             disp(output);
             
             % Build using CMake with verbose output
             disp('Building library...');
-            [~, output] = franka_toolbox_local_exec('cmake --build . --verbose', build_dir, opts);
+            [~, output] = franka_local_exec('cmake --build . --verbose', build_dir, opts);
             disp(output);
         end
         

@@ -1,10 +1,10 @@
-function franka_toolbox_binaries_target_docker_build(arch)
+function franka_binaries_target_docker_build(arch)
     %FRANKA_TOOLBOX_BINARIES_TARGET_DOCKER_BUILD Build target binaries using Docker
     %
-    %   franka_toolbox_binaries_target_docker_build() - Build for both architectures
-    %   franka_toolbox_binaries_target_docker_build('amd64') - Build for x86_64 only
-    %   franka_toolbox_binaries_target_docker_build('arm64') - Build for ARM64 only
-    %   franka_toolbox_binaries_target_docker_build('all') - Build for both architectures
+    %   franka_binaries_target_docker_build() - Build for both architectures
+    %   franka_binaries_target_docker_build('amd64') - Build for x86_64 only
+    %   franka_binaries_target_docker_build('arm64') - Build for ARM64 only
+    %   franka_binaries_target_docker_build('all') - Build for both architectures
     %
     %   This function uses Docker containers to build the target binaries
     %   (franka_robot_server) for Linux targets.
@@ -32,7 +32,7 @@ function franka_toolbox_binaries_target_docker_build(arch)
     end
     
     % Get installation path
-    installation_path = franka_toolbox_installation_path_get();
+    installation_path = franka_installation_path_get();
     docker_dir = fullfile(installation_path, 'docker');
     build_script = fullfile(docker_dir, 'build.sh');
     

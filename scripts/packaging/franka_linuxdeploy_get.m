@@ -1,11 +1,11 @@
-function appimage_path = franka_toolbox_linuxdeploy_get()
+function appimage_path = franka_linuxdeploy_get()
     %  Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
 
     % Determine local temp destination inside toolbox installation path
     % (user-space, avoids noexec /tmp mounts)
-    base_tmp = fullfile(franka_toolbox_installation_path_get(), 'tmp', 'linuxdeploy');
+    base_tmp = fullfile(franka_installation_path_get(), 'tmp', 'linuxdeploy');
     if ~isfolder(base_tmp)
         mkdir(base_tmp);
     end
@@ -30,7 +30,7 @@ function appimage_path = franka_toolbox_linuxdeploy_get()
         % Download on-the-fly into tmp if missing
         if ~isfile(appimage_path{i})
             cmd = ['wget -q -O ', appimage_name, ' ', url, ' && chmod +x ', appimage_name];
-            franka_toolbox_local_exec(cmd, base_tmp);
+            franka_local_exec(cmd, base_tmp);
         end
     end
 end

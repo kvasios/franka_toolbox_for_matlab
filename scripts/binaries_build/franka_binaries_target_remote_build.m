@@ -1,10 +1,10 @@
-function franka_toolbox_binaries_target_remote_build(user, ip, port, use_docker)
+function franka_binaries_target_remote_build(user, ip, port, use_docker)
     %FRANKA_TOOLBOX_BINARIES_TARGET_REMOTE_BUILD Build target binaries for ARM64 (Jetson)
     %
-    %   franka_toolbox_binaries_target_remote_build() - Build using Docker (recommended)
-    %   franka_toolbox_binaries_target_remote_build(user, ip, port) - Build on remote machine (legacy)
-    %   franka_toolbox_binaries_target_remote_build(user, ip, port, false) - Build on remote machine (legacy)
-    %   franka_toolbox_binaries_target_remote_build('', '', '', true) - Build using Docker
+    %   franka_binaries_target_remote_build() - Build using Docker (recommended)
+    %   franka_binaries_target_remote_build(user, ip, port) - Build on remote machine (legacy)
+    %   franka_binaries_target_remote_build(user, ip, port, false) - Build on remote machine (legacy)
+    %   franka_binaries_target_remote_build('', '', '', true) - Build using Docker
     %
     %   For Docker builds, the user/ip/port arguments are ignored.
     %   Docker cross-compilation builds ARM64 binaries locally without needing
@@ -29,15 +29,15 @@ function franka_toolbox_binaries_target_remote_build(user, ip, port, use_docker)
     if use_docker
         fprintf('Building ARM64 target binaries using Docker cross-compilation...\n');
         fprintf('Note: No remote machine required - building locally in Docker.\n\n');
-        franka_toolbox_binaries_target_docker_build('arm64');
+        franka_binaries_target_docker_build('arm64');
         return;
     end
     
     % Legacy remote build (requires SSH access to Jetson)
     if nargin < 3 || isempty(user) || isempty(ip)
         error(['Remote build requires user, ip, and port arguments.\n' ...
-               'Usage: franka_toolbox_binaries_target_remote_build(user, ip, port)\n' ...
-               'Or use Docker build: franka_toolbox_binaries_target_remote_build()']);
+               'Usage: franka_binaries_target_remote_build(user, ip, port)\n' ...
+               'Or use Docker build: franka_binaries_target_remote_build()']);
     end
     
     if nargin < 3 || isempty(port)
@@ -54,7 +54,7 @@ function franka_toolbox_binaries_target_remote_build(user, ip, port, use_docker)
     %% remote target arm
     % libfranka 
     fprintf('\n=== Building libfranka ===\n');
-    franka_toolbox_libfranka_remote_build(user,ip,port,libfranka_ver,true);
+    franka_libfranka_remote_build(user,ip,port,libfranka_ver,true);
 
     % FrankaRobot() server
     fprintf('\n=== Building FrankaRobot server ===\n');

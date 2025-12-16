@@ -30,7 +30,7 @@ classdef FrankaRobotServer < handle
                 obj.archSuffix = obj.detectRemoteArch();
             end
             
-            obj.execDir = fullfile(franka_toolbox_installation_path_get(), ...
+            obj.execDir = fullfile(franka_installation_path_get(), ...
                 'franka_robot_server', ['bin', obj.archSuffix]);
         end
         
@@ -78,7 +78,7 @@ classdef FrankaRobotServer < handle
                 q = @(p) ['''' p ''''];
                 cmd = sprintf('%s %s %s > %s 2>&1 & echo $! > %s', ...
                     q(execPath), obj.ServerIP, obj.ServerPort, q(obj.logFile), q(pidFile));
-                [s, ~] = franka_toolbox_local_exec(cmd, obj.execDir);
+                [s, ~] = franka_local_exec(cmd, obj.execDir);
                 if s ~= 0
                     error('FrankaRobotServer:StartFailed', 'Failed to start server');
                 end
@@ -151,12 +151,12 @@ classdef FrankaRobotServer < handle
             obj.ssh(['mkdir -p ' remoteMatlabWs]);
             
             execPath = fullfile(obj.execDir, 'franka_robot_server');
-            franka_toolbox_scp(execPath, [':' remoteDir '/'], ...
+            franka_scp(execPath, [':' remoteDir '/'], ...
                 obj.Username, obj.ServerIP, obj.SSHPort, scpOpts);
             
-            libfrankaPath = fullfile(franka_toolbox_installation_path_get(), ...
+            libfrankaPath = fullfile(franka_installation_path_get(), ...
                 ['libfranka' obj.archSuffix], 'build', 'usr');
-            franka_toolbox_scp(libfrankaPath, [':' remoteMatlabWs '/'], ...
+            franka_scp(libfrankaPath, [':' remoteMatlabWs '/'], ...
                 obj.Username, obj.ServerIP, obj.SSHPort, scpOptsR);
         end
 
@@ -248,14 +248,14 @@ classdef FrankaRobotServer < handle
         end
         
         function [status, output] = ssh(obj, cmd)
-            [status, output] = franka_toolbox_ssh_exec(cmd, obj.Username, ...
+            [status, output] = franka_ssh_exec(cmd, obj.Username, ...
                 obj.ServerIP, obj.SSHPort);
         end
         
         function arch = detectRemoteArch(obj)
             % Validate connection with user-friendly error
             opts = struct('nothrow', true, 'timeout', 5);
-            [status, ~] = franka_toolbox_ssh_exec('echo ok', obj.Username, ...
+            [status, ~] = franka_ssh_exec('echo ok', obj.Username, ...
                 obj.ServerIP, obj.SSHPort, opts);
             if status ~= 0
                 error('FrankaRobotServer:ConnectionFailed', ...
@@ -304,7 +304,7 @@ classdef FrankaRobotServer < handle
             else
                 root = '~/franka_matlab_ws';
             end
-            franka_toolbox_ssh_exec(['rm -rf ' root], username, serverIP, sshPort);
+            franka_ssh_exec(['rm -rf ' root], username, serverIP, sshPort);
         end
     end
 end

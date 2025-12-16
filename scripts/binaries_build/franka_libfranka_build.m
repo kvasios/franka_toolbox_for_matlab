@@ -1,4 +1,4 @@
-function wontdo = franka_toolbox_libfranka_build(libfranka_version,force_install,clone_only,folder_name)
+function wontdo = franka_libfranka_build(libfranka_version,force_install,clone_only,folder_name)
     %  Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
@@ -27,7 +27,7 @@ function wontdo = franka_toolbox_libfranka_build(libfranka_version,force_install
         folder_name = 'libfranka';
     end
 
-    installation_path = franka_toolbox_installation_path_get();
+    installation_path = franka_installation_path_get();
 
     % Deploy the preinstalled libfranka first, just in case
     deps_path = fullfile(installation_path, 'dependencies');
@@ -38,7 +38,7 @@ function wontdo = franka_toolbox_libfranka_build(libfranka_version,force_install
         force_install = true;
     end
     
-    libfranka_version_local = franka_toolbox_libfranka_build_local_check();
+    libfranka_version_local = franka_libfranka_build_local_check();
     
     if ~isempty(libfranka_version_local)
         % Proceed with installation if:
@@ -48,7 +48,7 @@ function wontdo = franka_toolbox_libfranka_build(libfranka_version,force_install
             return;
         else 
             wontdo = false;
-            franka_toolbox_libfranka_local_uninstall();
+            franka_libfranka_local_uninstall();
         end
     end
     
@@ -57,25 +57,25 @@ function wontdo = franka_toolbox_libfranka_build(libfranka_version,force_install
     
     % Execute git commands with verbose output
     opts = struct('verbose', true, 'nothrow', false);
-    franka_toolbox_local_exec(['git clone --recursive https://github.com/frankarobotics/libfranka ', folder_name], installation_path, opts);
-    franka_toolbox_local_exec(['git checkout ', libfranka_version], libfranka_path, opts);
-    franka_toolbox_local_exec('git submodule update', libfranka_path, opts);
+    franka_local_exec(['git clone --recursive https://github.com/frankarobotics/libfranka ', folder_name], installation_path, opts);
+    franka_local_exec(['git checkout ', libfranka_version], libfranka_path, opts);
+    franka_local_exec('git submodule update', libfranka_path, opts);
     
     % Check if build directory exists and remove it
     if exist(libfranka_build_path, 'dir')
         rmdir(libfranka_build_path, 's');
     end
-    franka_toolbox_local_exec('mkdir build', libfranka_path);
+    franka_local_exec('mkdir build', libfranka_path);
     
     if ~clone_only
-        franka_toolbox_local_exec('cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="/opt/openrobots/lib/cmake" ..', libfranka_build_path, opts);
-        franka_toolbox_local_exec('cmake --build .', libfranka_build_path, opts);
+        franka_local_exec('cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="/opt/openrobots/lib/cmake" ..', libfranka_build_path, opts);
+        franka_local_exec('cmake --build .', libfranka_build_path, opts);
 
         % libfranka runtime dependencies bundle
-        franka_toolbox_libfranka_deps_bundle();
+        franka_libfranka_deps_bundle();
 
         % Pack libfranka
-        franka_toolbox_libfranka_pack();
+        franka_libfranka_pack();
     end
     
 end

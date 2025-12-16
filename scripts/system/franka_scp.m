@@ -1,9 +1,9 @@
-function [status, output] = franka_toolbox_scp(source, destination, user, ip, port, options)
+function [status, output] = franka_scp(source, destination, user, ip, port, options)
     %FRANKA_TOOLBOX_SCP Copy files/folders to or from a remote machine via SCP
     %
-    %   [status, output] = franka_toolbox_scp(source, destination, user, ip)
-    %   [status, output] = franka_toolbox_scp(source, destination, user, ip, port)
-    %   [status, output] = franka_toolbox_scp(source, destination, user, ip, port, options)
+    %   [status, output] = franka_scp(source, destination, user, ip)
+    %   [status, output] = franka_scp(source, destination, user, ip, port)
+    %   [status, output] = franka_scp(source, destination, user, ip, port, options)
     %
     %   Inputs:
     %       source      - Source path (local or remote with ':' prefix for remote)
@@ -23,16 +23,16 @@ function [status, output] = franka_toolbox_scp(source, destination, user, ip, po
     %
     %   Examples:
     %       % Copy local file to remote
-    %       franka_toolbox_scp('/local/file.txt', ':/remote/dir/', 'user', '192.168.1.1');
+    %       franka_scp('/local/file.txt', ':/remote/dir/', 'user', '192.168.1.1');
     %       
     %       % Copy remote folder to local (recursive)
     %       opts.recursive = true;
-    %       franka_toolbox_scp(':/remote/folder', '/local/dest/', 'user', '192.168.1.1', '22', opts);
+    %       franka_scp(':/remote/folder', '/local/dest/', 'user', '192.168.1.1', '22', opts);
     %
     %       % Copy local folder to remote (recursive, non-throwing)
     %       opts.recursive = true;
     %       opts.nothrow = true;
-    %       [s, o] = franka_toolbox_scp('/local/folder', ':/remote/', 'user', '192.168.1.1', '22', opts);
+    %       [s, o] = franka_scp('/local/folder', ':/remote/', 'user', '192.168.1.1', '22', opts);
     %
     %   Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %   This file is subject to the terms and conditions defined in the file

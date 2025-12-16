@@ -54,7 +54,7 @@ In that case, please inform the Toolbox so it will opt for building against the 
 
 .. code-block:: matlab
 
-    franka_toolbox_libfranka_system_installation_set(true);
+    franka_libfranka_system_installation_set(true);
 
 This will trigger the Toolbox to build against the system-wide libfranka installation.
 
@@ -62,4 +62,4 @@ For reverting back to the local installation in the scope of the Toolbox, you ca
 
 .. code-block:: matlab
 
-    franka_toolbox_libfranka_system_installation_set(false);
+    franka_libfranka_system_installation_set(false);

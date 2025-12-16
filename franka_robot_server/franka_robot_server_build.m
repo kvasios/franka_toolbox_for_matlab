@@ -16,12 +16,12 @@ function franka_robot_server_build(varargin)
     is_remote = ~isempty(p.Results.user) && ~isempty(p.Results.ip);
     build_type = p.Results.build_type;
 
-    installation_path = franka_toolbox_installation_path_get();
+    installation_path = franka_installation_path_get();
     server_path = fullfile(installation_path, 'franka_robot_server');
 
     if is_remote
 
-        installation_path = franka_toolbox_installation_path_get();
+        installation_path = franka_installation_path_get();
 
         % Check if libfranka_arm exists, if not unzip from dependencies
         if ~isfolder(fullfile(installation_path, 'libfranka_arm'))
@@ -40,13 +40,13 @@ function franka_robot_server_build(varargin)
         scpOpts = struct('recursive', true, 'verbose', true, 'nothrow', false);
         
         % Check if remote directory exists before removing
-        [status, ~] = franka_toolbox_ssh_exec('ls -d ~/franka_matlab 2>/dev/null', ...
+        [status, ~] = franka_ssh_exec('ls -d ~/franka_matlab 2>/dev/null', ...
             p.Results.user, p.Results.ip, p.Results.port);
         if status == 0
-            franka_toolbox_ssh_exec('rm -rf ~/franka_matlab', ...
+            franka_ssh_exec('rm -rf ~/franka_matlab', ...
                 p.Results.user, p.Results.ip, p.Results.port, sshOpts);
         end
-        franka_toolbox_ssh_exec(['mkdir -p ', remote_installation_path], ...
+        franka_ssh_exec(['mkdir -p ', remote_installation_path], ...
             p.Results.user, p.Results.ip, p.Results.port, sshOpts);
 
         % Copy only the necessary folders to remote machine
@@ -64,7 +64,7 @@ function franka_robot_server_build(varargin)
         for i = 1:length(folders_to_copy)
             source_path = fullfile(installation_path, folders_to_copy{i});
             remote_path = [':' remote_installation_path, '/', folders_to_copy{i}];
-            franka_toolbox_scp(source_path, remote_path, ...
+            franka_scp(source_path, remote_path, ...
                 p.Results.user, p.Results.ip, p.Results.port, scpOpts);
         end
         
@@ -74,20 +74,20 @@ function franka_robot_server_build(varargin)
         fprintf('Starting remote build process...\n');
         
         % Create and navigate to build directory
-        franka_toolbox_ssh_exec(['mkdir -p ' remote_build_path '/build'], ...
+        franka_ssh_exec(['mkdir -p ' remote_build_path '/build'], ...
             p.Results.user, p.Results.ip, p.Results.port, sshOpts);
         
         % Configure CMake
         cmake_cmd = sprintf('cd %s/build && cmake -DCMAKE_BUILD_TYPE=%s -DFranka_DIR="%s" -DFRANKA_FOLDER="libfranka_arm" -DBIN_FOLDER="bin_arm" ..', ...
             remote_build_path, build_type, remote_franka_dir);
-        franka_toolbox_ssh_exec(cmake_cmd, p.Results.user, p.Results.ip, p.Results.port, sshOpts);
+        franka_ssh_exec(cmake_cmd, p.Results.user, p.Results.ip, p.Results.port, sshOpts);
         
         % Build the project
         build_cmd = sprintf('cd %s/build && cmake --build . --config Release -j$(nproc)', remote_build_path);
-        franka_toolbox_ssh_exec(build_cmd, p.Results.user, p.Results.ip, p.Results.port, sshOpts);
+        franka_ssh_exec(build_cmd, p.Results.user, p.Results.ip, p.Results.port, sshOpts);
 
         % Add executable permissions to the built server
-        franka_toolbox_ssh_exec(['chmod +x ' remote_build_path '/build/franka_robot_server'], ...
+        franka_ssh_exec(['chmod +x ' remote_build_path '/build/franka_robot_server'], ...
             p.Results.user, p.Results.ip, p.Results.port, sshOpts);
 
         if ~isfolder(fullfile(installation_path,'franka_robot_server','bin_arm'))
@@ -99,7 +99,7 @@ function franka_robot_server_build(varargin)
         end
     
         % Copy built executable from remote
-        franka_toolbox_scp(':~/franka_matlab/franka_robot_server/build/franka_robot_server', ...
+        franka_scp(':~/franka_matlab/franka_robot_server/build/franka_robot_server', ...
             fullfile(installation_path,'franka_robot_server','bin_arm'), ...
             p.Results.user, p.Results.ip, p.Results.port, scpOpts);
     
@@ -110,7 +110,7 @@ function franka_robot_server_build(varargin)
         rmdir(fullfile(installation_path,'franka_robot_server','bin_arm'),'s');
     else
 
-        installation_path = franka_toolbox_installation_path_get();
+        installation_path = franka_installation_path_get();
     
         % Check if libfranka exists, if not unzip from dependencies
         if ~isfolder(fullfile(installation_path, 'libfranka'))
@@ -136,14 +136,14 @@ function franka_robot_server_build(varargin)
         cmake_cmd = sprintf('cmake -DCMAKE_BUILD_TYPE=%s -DFranka_DIR="%s" -DFRANKA_FOLDER="libfranka" -DBIN_FOLDER="bin" ..', ...
             build_type, frankaDir);
         opts = struct('nothrow', false);
-        franka_toolbox_local_exec(cmake_cmd, build_dir, opts);
+        franka_local_exec(cmake_cmd, build_dir, opts);
 
         % Build the project
         fprintf('Building project...\n');
-        franka_toolbox_local_exec('cmake --build . --config Release', build_dir, opts);
+        franka_local_exec('cmake --build . --config Release', build_dir, opts);
 
         % Add executable permissions to the built server
-        franka_toolbox_local_exec('chmod +x franka_robot_server', build_dir, opts);
+        franka_local_exec('chmod +x franka_robot_server', build_dir, opts);
 
         % Pack
         if ~isfolder(fullfile(installation_path,'franka_robot_server','bin'))

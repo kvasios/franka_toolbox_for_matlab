@@ -1,4 +1,4 @@
-function franka_toolbox_libfranka_pack(remote)
+function franka_libfranka_pack(remote)
     %  Copyright (c) 2024 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
@@ -7,7 +7,7 @@ function franka_toolbox_libfranka_pack(remote)
         remote = false;
     end
     
-    installation_path = franka_toolbox_installation_path_get();
+    installation_path = franka_installation_path_get();
 
     dependencies_path = fullfile(installation_path,'dependencies');
 

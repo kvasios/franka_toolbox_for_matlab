@@ -1,4 +1,4 @@
-function libfranka_version = franka_toolbox_libfranka_system_installation_check(user,ip,port)
+function libfranka_version = franka_libfranka_system_installation_check(user,ip,port)
     %  Copyright (c) 2024 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
@@ -24,7 +24,7 @@ function libfranka_version = franka_toolbox_libfranka_system_installation_check(
     if ~remote
         [~, r] = system(ld_search_cmd);
     else 
-        [~, r] = franka_toolbox_ssh_exec(ld_search_cmd, user, ip, port);
+        [~, r] = franka_ssh_exec(ld_search_cmd, user, ip, port);
     end
 
     if ~isempty(r)

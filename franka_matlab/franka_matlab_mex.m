@@ -3,7 +3,7 @@ function franka_matlab_mex()
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
 
-    installation_path = franka_toolbox_installation_path_get();
+    installation_path = franka_installation_path_get();
 
     franka_matlab_src_path = fullfile(installation_path,'franka_matlab','src');
     franka_robot_server_path = fullfile(installation_path,'franka_robot_server');
@@ -19,7 +19,7 @@ function franka_matlab_mex()
     
     if isunix()
         % Generate capnp files first
-        franka_toolbox_local_exec('./generate_capnp.sh', franka_robot_server_path, opts);
+        franka_local_exec('./generate_capnp.sh', franka_robot_server_path, opts);
         
         mex_string = strjoin({...
             'mex', ...
@@ -40,7 +40,7 @@ function franka_matlab_mex()
     elseif ispc()
 
         % Generate capnp files first
-        franka_toolbox_local_exec('generate_capnp.bat', franka_robot_server_path, opts);
+        franka_local_exec('generate_capnp.bat', franka_robot_server_path, opts);
         
         capnproto_installation_dir = 'C:\Program Files (x86)\capnproto-c++-win32-1.0.2\capnproto-c++-1.0.2\src';
 

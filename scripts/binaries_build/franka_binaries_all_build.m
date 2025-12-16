@@ -1,13 +1,13 @@
-function franka_toolbox_binaries_all_build(varargin)
+function franka_binaries_all_build(varargin)
     %FRANKA_TOOLBOX_BINARIES_ALL_BUILD Build all Franka Toolbox binaries
     %
-    %   franka_toolbox_binaries_all_build() 
+    %   franka_binaries_all_build() 
     %       Build host MEX files. On Linux, also builds target binaries using Docker.
     %
-    %   franka_toolbox_binaries_all_build('docker')
+    %   franka_binaries_all_build('docker')
     %       Build host MEX files and target binaries using Docker (Linux only).
     %
-    %   franka_toolbox_binaries_all_build(user, ip, port)
+    %   franka_binaries_all_build(user, ip, port)
     %       Legacy mode: Build host MEX files and target binaries using remote Jetson.
     %
     %   This function orchestrates the complete build process:
@@ -42,7 +42,7 @@ function franka_toolbox_binaries_all_build(varargin)
         elseif islogical(varargin{1})
             use_docker = varargin{1};
         else
-            error('Invalid argument. Use ''docker'' or franka_toolbox_binaries_all_build(user, ip, port)');
+            error('Invalid argument. Use ''docker'' or franka_binaries_all_build(user, ip, port)');
         end
     elseif nargin == 3
         use_docker = false;
@@ -50,7 +50,7 @@ function franka_toolbox_binaries_all_build(varargin)
         ip = varargin{2};
         port = varargin{3};
     elseif nargin > 0 && nargin ~= 3
-        error('Invalid number of arguments. Use franka_toolbox_binaries_all_build() or franka_toolbox_binaries_all_build(user, ip, port)');
+        error('Invalid number of arguments. Use franka_binaries_all_build() or franka_binaries_all_build(user, ip, port)');
     end
 
     fprintf('\n');
@@ -74,15 +74,15 @@ function franka_toolbox_binaries_all_build(varargin)
         
         if use_docker
             fprintf('Using Docker for target builds (both amd64 and arm64)...\n\n');
-            franka_toolbox_binaries_target_docker_build('all');
+            franka_binaries_target_docker_build('all');
         else
             % Legacy mode with remote Jetson
             fprintf('Building local x86_64 target...\n');
-            franka_toolbox_binaries_target_local_build(false);
+            franka_binaries_target_local_build(false);
             
             if ~isempty(user) && ~isempty(ip)
                 fprintf('\nBuilding remote ARM64 target...\n');
-                franka_toolbox_binaries_target_remote_build(user, ip, port, false);
+                franka_binaries_target_remote_build(user, ip, port, false);
             end
         end
     else

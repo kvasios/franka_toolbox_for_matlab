@@ -1,9 +1,9 @@
-function [status, output] = franka_toolbox_ssh_exec(cmd, user, ip, port, options)
+function [status, output] = franka_ssh_exec(cmd, user, ip, port, options)
     %FRANKA_TOOLBOX_SSH_EXEC Execute a command on a remote machine via SSH
     %
-    %   [status, output] = franka_toolbox_ssh_exec(cmd, user, ip)
-    %   [status, output] = franka_toolbox_ssh_exec(cmd, user, ip, port)
-    %   [status, output] = franka_toolbox_ssh_exec(cmd, user, ip, port, options)
+    %   [status, output] = franka_ssh_exec(cmd, user, ip)
+    %   [status, output] = franka_ssh_exec(cmd, user, ip, port)
+    %   [status, output] = franka_ssh_exec(cmd, user, ip, port, options)
     %
     %   Inputs:
     %       cmd      - Command to execute on remote machine
@@ -21,11 +21,11 @@ function [status, output] = franka_toolbox_ssh_exec(cmd, user, ip, port, options
     %
     %   Examples:
     %       % Check if file exists (non-throwing)
-    %       [s, ~] = franka_toolbox_ssh_exec('test -f /path/file', 'user', '192.168.1.1');
+    %       [s, ~] = franka_ssh_exec('test -f /path/file', 'user', '192.168.1.1');
     %       
     %       % Run command and throw on failure
     %       opts.nothrow = false;
-    %       franka_toolbox_ssh_exec('ls -la', 'user', '192.168.1.1', '22', opts);
+    %       franka_ssh_exec('ls -la', 'user', '192.168.1.1', '22', opts);
     %
     %   Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %   This file is subject to the terms and conditions defined in the file
