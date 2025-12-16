@@ -3,6 +3,7 @@
 
 #include "franka_robot_api.h"
 
+#include <cmath>
 #include <iostream>
 
 // ============================================================================
@@ -156,6 +157,27 @@ franka::Torques FrankaRobotContext::controlCallback(
     std::array<double, 7> tau_cmd{};
     if (tau_J_d_in_) {
         std::copy(tau_J_d_in_, tau_J_d_in_ + 7, tau_cmd.begin());
+    }
+
+    // Safety: guard against NaN/Inf torques (often indicates wiring/state issues)
+    // to avoid sending garbage to the robot.
+    {
+        bool ok = true;
+        for (double v : tau_cmd) {
+            if (!std::isfinite(v)) {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok) {
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true)) {
+                std::cerr << "FrankaRobotContext: non-finite tau_J_d detected; "
+                             "zeroing torques. Check Simulink signal wiring / controller execution."
+                          << std::endl;
+            }
+            tau_cmd.fill(0.0);
+        }
     }
     
     return franka::Torques(tau_cmd);
