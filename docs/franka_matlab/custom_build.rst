@@ -63,8 +63,8 @@ Linux
 
 .. code-block:: matlab
 
-    franka_simulink_library_mex();
-    franka_robot_mex();
+    franka_simulink_mex();
+    franka_matlab_mex();
 
 Windows
 ^^^^^^^
@@ -82,8 +82,8 @@ Build Cap'n Proto from source as static libraries. See the CI workflow in ``.git
 
 .. code-block:: matlab
 
-    franka_simulink_library_mex();
-    franka_robot_mex();
+    franka_simulink_mex();
+    franka_matlab_mex();
 
 Creating the Distribution Package
 ---------------------------------

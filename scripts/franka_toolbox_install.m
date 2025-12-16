@@ -34,19 +34,19 @@ function franka_toolbox_install()
         installation_path = franka_toolbox_installation_path_get();
 
         % Unzip Simulink binaries
-        franka_simulink_library = fullfile(installation_path, 'franka_simulink_library');
-        tryUnzip(fullfile(franka_simulink_library,'bin.zip'), ...
-                 fullfile(franka_simulink_library,'blocks'));
+        franka_simulink_path = fullfile(installation_path, 'franka_simulink');
+        tryUnzip(fullfile(franka_simulink_path,'bin.zip'), ...
+                 fullfile(franka_simulink_path,'blocks'));
         
         % Unpack server binaries
-        matlab_robot_server_path = fullfile(installation_path, 'franka_robot_server');
-        tryUntar(fullfile(matlab_robot_server_path, 'bin.tar.gz'), matlab_robot_server_path);
-        tryUntar(fullfile(matlab_robot_server_path, 'bin_arm.tar.gz'), matlab_robot_server_path);
+        server_path = fullfile(installation_path, 'franka_robot_server');
+        tryUntar(fullfile(server_path, 'bin.tar.gz'), server_path);
+        tryUntar(fullfile(server_path, 'bin_arm.tar.gz'), server_path);
         
         % Unpack MATLAB library binaries
-        matlab_lib_path = fullfile(installation_path, 'franka_robot');
-        tryUnzip(fullfile(matlab_lib_path, 'bin.zip'), matlab_lib_path);
-        addpath(fullfile(matlab_lib_path, 'bin'));
+        franka_matlab_path = fullfile(installation_path, 'franka_matlab');
+        tryUnzip(fullfile(franka_matlab_path, 'bin.zip'), franka_matlab_path);
+        addpath(fullfile(franka_matlab_path, 'bin'));
         
         % Unpack libfranka dependencies
         deps_path = fullfile(installation_path, 'dependencies');

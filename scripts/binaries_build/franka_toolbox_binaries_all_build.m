@@ -62,11 +62,11 @@ function franka_toolbox_binaries_all_build(varargin)
     % Build Simulink & MATLAB libs (host)
     fprintf('=== Building Host MEX Files ===\n\n');
     
-    fprintf('Building Simulink library MEX files...\n');
-    franka_simulink_library_mex();
+    fprintf('Building Simulink MEX files...\n');
+    franka_simulink_mex();
     
-    fprintf('\nBuilding FrankaRobot MEX files...\n');
-    franka_robot_mex();
+    fprintf('\nBuilding MATLAB MEX files...\n');
+    franka_matlab_mex();
     
     % Build target binaries (Linux only)
     if isunix()

@@ -1,15 +1,15 @@
-function franka_robot_mex()
+function franka_matlab_mex()
     %  Copyright (c) 2025 Franka Robotics GmbH - All Rights Reserved
     %  This file is subject to the terms and conditions defined in the file
     %  'LICENSE' , which is part of this package
 
     installation_path = franka_toolbox_installation_path_get();
 
-    franka_robot_path = fullfile(installation_path,'franka_robot','src');
+    franka_matlab_src_path = fullfile(installation_path,'franka_matlab','src');
     franka_robot_server_path = fullfile(installation_path,'franka_robot_server');
     franka_robot_server_build_path = fullfile(franka_robot_server_path,'build');
 
-    destination_path = fullfile(installation_path,'franka_robot','build');
+    destination_path = fullfile(installation_path,'franka_matlab','build');
     
     if ~isfolder(destination_path)
     	mkdir(destination_path);
@@ -26,7 +26,7 @@ function franka_robot_mex()
             ['-I"',franka_robot_server_build_path,'/interface"'], ...
             '-I"/usr/local/include/capnp/include"', ...
             '-L"/usr/local/lib"', ...
-            fullfile(franka_robot_path,'franka_robot.cpp'), ...
+            fullfile(franka_matlab_src_path,'franka_robot.cpp'), ...
             fullfile(franka_robot_server_build_path,'interface','rpc.capnp.c++'), ...
             '/usr/local/lib/libcapnp-rpc.a', ...
             '/usr/local/lib/libcapnp.a', ...
@@ -59,7 +59,7 @@ function franka_robot_mex()
             '-lkj-async', ...
             '-lWs2_32', ...
             'COMPFLAGS="$COMPFLAGS /std:c++17"', ...
-            fullfile(franka_robot_path,'franka_robot.cpp'), ...
+            fullfile(franka_matlab_src_path,'franka_robot.cpp'), ...
             fullfile(franka_robot_server_build_path,'interface','rpc.capnp.cpp'), ...
             [' -outdir ', destination_path]
         });
@@ -68,12 +68,12 @@ function franka_robot_mex()
 
     eval(mex_string);
 
-    if ~isfolder(fullfile(installation_path,'franka_robot','bin'))
-        mkdir(fullfile(installation_path,'franka_robot','bin'));
+    if ~isfolder(fullfile(installation_path,'franka_matlab','bin'))
+        mkdir(fullfile(installation_path,'franka_matlab','bin'));
     end
 
-    if isfile(fullfile(installation_path,'franka_robot','bin.zip'))
-        unzip(fullfile(installation_path,'franka_robot','bin.zip'),fullfile(installation_path,'franka_robot'));
+    if isfile(fullfile(installation_path,'franka_matlab','bin.zip'))
+        unzip(fullfile(installation_path,'franka_matlab','bin.zip'),fullfile(installation_path,'franka_matlab'));
     end
     
     if isunix()
@@ -81,9 +81,9 @@ function franka_robot_mex()
     elseif ispc()
         produce = 'franka_robot.mexw64';
     end
-    copyfile(fullfile(installation_path, 'franka_robot','build',produce),fullfile(installation_path,'franka_robot','bin')); 
+    copyfile(fullfile(installation_path, 'franka_matlab','build',produce),fullfile(installation_path,'franka_matlab','bin')); 
     
-    zip(fullfile(installation_path,'franka_robot','bin.zip'),fullfile(installation_path,'franka_robot','bin'));
+    zip(fullfile(installation_path,'franka_matlab','bin.zip'),fullfile(installation_path,'franka_matlab','bin'));
 
     if isfolder(franka_robot_server_build_path)
         rmdir(franka_robot_server_build_path, 's');
@@ -91,8 +91,8 @@ function franka_robot_mex()
     if isfolder(destination_path)
         rmdir(destination_path, 's');
     end
-    if isfolder(fullfile(installation_path,'franka_robot','bin'))
-        rmdir(fullfile(installation_path,'franka_robot','bin'), 's');
+    if isfolder(fullfile(installation_path,'franka_matlab','bin'))
+        rmdir(fullfile(installation_path,'franka_matlab','bin'), 's');
     end
 
 end

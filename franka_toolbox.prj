@@ -97,7 +97,6 @@ franka_toolbox_dist_make.m
       <file>${PROJECT_ROOT}/.github</file>
       <file>${PROJECT_ROOT}/LICENSE</file>
       <file>${PROJECT_ROOT}/README.md</file>
-      <file>${PROJECT_ROOT}/common</file>
       <file>${PROJECT_ROOT}/config</file>
       <file>${PROJECT_ROOT}/data</file>
       <file>${PROJECT_ROOT}/dependencies</file>
@@ -105,9 +104,9 @@ franka_toolbox_dist_make.m
       <file>${PROJECT_ROOT}/docker</file>
       <file>${PROJECT_ROOT}/docs</file>
       <file>${PROJECT_ROOT}/examples</file>
-      <file>${PROJECT_ROOT}/franka_robot</file>
+      <file>${PROJECT_ROOT}/franka_matlab</file>
       <file>${PROJECT_ROOT}/franka_robot_server</file>
-      <file>${PROJECT_ROOT}/franka_simulink_library</file>
+      <file>${PROJECT_ROOT}/franka_simulink</file>
       <file>${PROJECT_ROOT}/scripts</file>
     </fileset.rootfiles>
     <fileset.depfun.included />
