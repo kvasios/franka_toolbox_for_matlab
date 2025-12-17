@@ -5,24 +5,42 @@
  * It outputs a function-call signal to trigger an external controller subsystem.
  *
  * Parameters:
- *   control_mode - Control mode selection (0-4):
- *     0: Torques           - Direct torque control
- *     1: JointPositions    - Joint position control with internal impedance
- *     2: JointVelocities   - Joint velocity control with internal impedance
- *     3: CartesianPose     - Cartesian pose control with internal impedance
- *     4: CartesianVelocities - Cartesian velocity control with internal impedance
+ *   control_mode - Control mode selection (0-8):
  *
- * Inputs:
- *   0. Enable    (1x1)   - Rising edge starts control, falling edge stops
- *   1. robot_ip  (16x1)  - Robot IP as ASCII chars (use String Constant + String to ASCII)
- *   2. command   (varies)- Mode-dependent command input:
- *                          Mode 0: tau_J_d (7x1)    - Commanded joint torques [Nm]
- *                          Mode 1: q_d (7x1)        - Commanded joint positions [rad]
- *                          Mode 2: dq_d (7x1)       - Commanded joint velocities [rad/s]
- *                          Mode 3: O_T_EE_d (16x1)  - Commanded EE pose (4x4 col-major) [m]
- *                          Mode 4: O_dP_EE_d (6x1)  - Commanded EE velocity [m/s, rad/s]
- *   3. elbow_d   (2x1)   - Elbow configuration (only for modes 3-4)
- *                          [elbow_position, elbow_sign]
+ *     Single-callback modes (robot's internal controller for non-torque):
+ *       0: Torques             - Direct torque control
+ *       1: JointPositions      - Joint position with internal impedance
+ *       2: JointVelocities     - Joint velocity with internal impedance
+ *       3: CartesianPose       - Cartesian pose with internal impedance
+ *       4: CartesianVelocities - Cartesian velocity with internal impedance
+ *
+ *     Dual-callback modes (user torque + motion generator):
+ *       5: Torques + JointPositions      - External torque + joint position motion gen
+ *       6: Torques + JointVelocities     - External torque + joint velocity motion gen
+ *       7: Torques + CartesianPose       - External torque + Cartesian pose motion gen
+ *       8: Torques + CartesianVelocities - External torque + Cartesian velocity motion gen
+ *
+ * Inputs (mode-dependent):
+ *
+ *   Single-callback modes (0-4):
+ *     0. Enable    (1x1)   - Rising edge starts control, falling edge stops
+ *     1. robot_ip  (16x1)  - Robot IP as ASCII chars
+ *     2. command   (varies)- Mode 0: tau_J_d (7x1)   [Nm]
+ *                           Mode 1: q_d (7x1)       [rad]
+ *                           Mode 2: dq_d (7x1)      [rad/s]
+ *                           Mode 3: O_T_EE_d (16x1) [m] (4x4 col-major)
+ *                           Mode 4: O_dP_EE_d (6x1) [m/s, rad/s]
+ *     3. elbow_d   (2x1)   - Elbow config (modes 3-4 only)
+ *
+ *   Dual-callback modes (5-8):
+ *     0. Enable     (1x1)   - Rising edge starts control
+ *     1. robot_ip   (16x1)  - Robot IP as ASCII chars
+ *     2. tau_J_d    (7x1)   - Commanded joint torques [Nm]
+ *     3. motion_cmd (varies)- Mode 5: q_d (7x1)       [rad]
+ *                            Mode 6: dq_d (7x1)      [rad/s]
+ *                            Mode 7: O_T_EE_d (16x1) [m] (4x4 col-major)
+ *                            Mode 8: O_dP_EE_d (6x1) [m/s, rad/s]
+ *     4. elbow_d    (2x1)   - Elbow config (modes 7-8 only)
  *
  * Outputs:
  *   0. fcall       (function-call)       - Triggers controller at 1kHz [MUST BE FIRST]
@@ -55,22 +73,45 @@
 #define NUM_PARAMS          1
 #define PARAM_CONTROL_MODE  0
 
-/* Control mode enum (matches block mask dropdown order) */
+/* Control mode enum (matches block mask dropdown order)
+ * 
+ * Single-callback modes (use robot's internal controller for non-torque modes):
+ *   0: Torques              - Direct torque control
+ *   1: JointPositions       - Joint position with internal impedance
+ *   2: JointVelocities      - Joint velocity with internal impedance
+ *   3: CartesianPose        - Cartesian pose with internal impedance
+ *   4: CartesianVelocities  - Cartesian velocity with internal impedance
+ * 
+ * Dual-callback modes (user provides both torque AND motion generator):
+ *   5: Torques + JointPositions      - External torque + joint position motion gen
+ *   6: Torques + JointVelocities     - External torque + joint velocity motion gen
+ *   7: Torques + CartesianPose       - External torque + Cartesian pose motion gen
+ *   8: Torques + CartesianVelocities - External torque + Cartesian velocity motion gen
+ */
 enum FrankaControlMode {
+    /* Single-callback modes */
     CTRL_TORQUES = 0,
     CTRL_JOINT_POSITIONS = 1,
     CTRL_JOINT_VELOCITIES = 2,
     CTRL_CARTESIAN_POSE = 3,
-    CTRL_CARTESIAN_VELOCITIES = 4
+    CTRL_CARTESIAN_VELOCITIES = 4,
+    /* Dual-callback modes (torque + motion generator) */
+    CTRL_TORQUES_JOINT_POSITIONS = 5,
+    CTRL_TORQUES_JOINT_VELOCITIES = 6,
+    CTRL_TORQUES_CARTESIAN_POSE = 7,
+    CTRL_TORQUES_CARTESIAN_VELOCITIES = 8
 };
 
-/* Input port indices */
+/* Input port indices - vary by mode */
 #define IN_ENABLE     0
 #define IN_ROBOT_IP   1
+/* Single-callback modes (0-4): */
 #define IN_COMMAND    2  /* Command input (tau_J_d, q_d, dq_d, O_T_EE_d, or O_dP_EE_d) */
-#define IN_ELBOW      3  /* Elbow input (only for Cartesian modes) */
-#define NUM_INPUTS_BASE    3  /* Modes 0-2: Enable, robot_ip, command */
-#define NUM_INPUTS_CART    4  /* Modes 3-4: Enable, robot_ip, command, elbow */
+#define IN_ELBOW      3  /* Elbow input (only for Cartesian single modes 3-4) */
+/* Dual-callback modes (5-8): */
+#define IN_TAU_J_D    2  /* Torque input for dual modes */
+#define IN_MOTION_CMD 3  /* Motion generator input for dual modes */
+#define IN_ELBOW_DUAL 4  /* Elbow input (only for Cartesian dual modes 7-8) */
 
 /* Output port indices */
 #define OUT_FCALL       0   /* Function-call output - MUST BE FIRST */
@@ -112,9 +153,36 @@ static void mdlInitializeSizes(SimStruct *S)
     /* ====================================================================
      * INPUT PORTS - Dynamic sizing based on control mode
      * ==================================================================== */
-    int num_inputs = (control_mode == CTRL_CARTESIAN_POSE || 
-                      control_mode == CTRL_CARTESIAN_VELOCITIES) 
-                     ? NUM_INPUTS_CART : NUM_INPUTS_BASE;
+    
+    /* Determine number of input ports based on mode:
+     * - Modes 0-2 (single, joint-space): 3 ports
+     * - Modes 3-4 (single, Cartesian): 4 ports (includes elbow)
+     * - Modes 5-6 (dual, joint-space): 4 ports (tau + motion)
+     * - Modes 7-8 (dual, Cartesian): 5 ports (tau + motion + elbow)
+     */
+    int num_inputs;
+    switch (control_mode) {
+        case CTRL_TORQUES:
+        case CTRL_JOINT_POSITIONS:
+        case CTRL_JOINT_VELOCITIES:
+            num_inputs = 3;  /* Enable, robot_ip, command */
+            break;
+        case CTRL_CARTESIAN_POSE:
+        case CTRL_CARTESIAN_VELOCITIES:
+            num_inputs = 4;  /* Enable, robot_ip, command, elbow */
+            break;
+        case CTRL_TORQUES_JOINT_POSITIONS:
+        case CTRL_TORQUES_JOINT_VELOCITIES:
+            num_inputs = 4;  /* Enable, robot_ip, tau_J_d, motion_cmd */
+            break;
+        case CTRL_TORQUES_CARTESIAN_POSE:
+        case CTRL_TORQUES_CARTESIAN_VELOCITIES:
+            num_inputs = 5;  /* Enable, robot_ip, tau_J_d, motion_cmd, elbow */
+            break;
+        default:
+            num_inputs = 3;
+            break;
+    }
     
     if (!ssSetNumInputPorts(S, num_inputs)) return;
     
@@ -130,27 +198,135 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetInputPortDirectFeedThrough(S, IN_ROBOT_IP, 1);
     ssSetInputPortRequiredContiguous(S, IN_ROBOT_IP, 1);
     
-    /* Port 2: Command input (size depends on control mode) */
-    int command_size;
+    /* Configure remaining ports based on mode */
     switch (control_mode) {
-        case CTRL_TORQUES:           command_size = 7;  break;  /* tau_J_d */
-        case CTRL_JOINT_POSITIONS:   command_size = 7;  break;  /* q_d */
-        case CTRL_JOINT_VELOCITIES:  command_size = 7;  break;  /* dq_d */
-        case CTRL_CARTESIAN_POSE:    command_size = 16; break;  /* O_T_EE_d (4x4) */
-        case CTRL_CARTESIAN_VELOCITIES: command_size = 6; break; /* O_dP_EE_d (6x1) */
-        default:                     command_size = 7;  break;  /* Default to torques */
-    }
-    ssSetInputPortWidth(S, IN_COMMAND, command_size);
-    ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
-    ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
-    ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
-    
-    /* Port 3: Elbow input (only for Cartesian modes) */
-    if (num_inputs == NUM_INPUTS_CART) {
-        ssSetInputPortWidth(S, IN_ELBOW, 2);  /* elbow_d: [position, sign] */
-        ssSetInputPortDataType(S, IN_ELBOW, SS_DOUBLE);
-        ssSetInputPortDirectFeedThrough(S, IN_ELBOW, 1);
-        ssSetInputPortRequiredContiguous(S, IN_ELBOW, 1);
+        /* ================================================================
+         * SINGLE-CALLBACK MODES (0-4)
+         * Port 2: command, Port 3: elbow (Cartesian only)
+         * ================================================================ */
+        case CTRL_TORQUES:
+            /* Port 2: tau_J_d (7x1) */
+            ssSetInputPortWidth(S, IN_COMMAND, 7);
+            ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
+            ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
+            break;
+            
+        case CTRL_JOINT_POSITIONS:
+            /* Port 2: q_d (7x1) */
+            ssSetInputPortWidth(S, IN_COMMAND, 7);
+            ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
+            ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
+            break;
+            
+        case CTRL_JOINT_VELOCITIES:
+            /* Port 2: dq_d (7x1) */
+            ssSetInputPortWidth(S, IN_COMMAND, 7);
+            ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
+            ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
+            break;
+            
+        case CTRL_CARTESIAN_POSE:
+            /* Port 2: O_T_EE_d (16x1, 4x4 col-major) */
+            ssSetInputPortWidth(S, IN_COMMAND, 16);
+            ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
+            ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
+            /* Port 3: elbow_d (2x1) */
+            ssSetInputPortWidth(S, IN_ELBOW, 2);
+            ssSetInputPortDataType(S, IN_ELBOW, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_ELBOW, 1);
+            ssSetInputPortRequiredContiguous(S, IN_ELBOW, 1);
+            break;
+            
+        case CTRL_CARTESIAN_VELOCITIES:
+            /* Port 2: O_dP_EE_d (6x1) */
+            ssSetInputPortWidth(S, IN_COMMAND, 6);
+            ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
+            ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
+            /* Port 3: elbow_d (2x1) */
+            ssSetInputPortWidth(S, IN_ELBOW, 2);
+            ssSetInputPortDataType(S, IN_ELBOW, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_ELBOW, 1);
+            ssSetInputPortRequiredContiguous(S, IN_ELBOW, 1);
+            break;
+            
+        /* ================================================================
+         * DUAL-CALLBACK MODES (5-8): Torque + Motion Generator
+         * Port 2: tau_J_d, Port 3: motion_cmd, Port 4: elbow (Cartesian only)
+         * ================================================================ */
+        case CTRL_TORQUES_JOINT_POSITIONS:
+            /* Port 2: tau_J_d (7x1) */
+            ssSetInputPortWidth(S, IN_TAU_J_D, 7);
+            ssSetInputPortDataType(S, IN_TAU_J_D, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_TAU_J_D, 1);
+            ssSetInputPortRequiredContiguous(S, IN_TAU_J_D, 1);
+            /* Port 3: q_d (7x1) */
+            ssSetInputPortWidth(S, IN_MOTION_CMD, 7);
+            ssSetInputPortDataType(S, IN_MOTION_CMD, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_MOTION_CMD, 1);
+            ssSetInputPortRequiredContiguous(S, IN_MOTION_CMD, 1);
+            break;
+            
+        case CTRL_TORQUES_JOINT_VELOCITIES:
+            /* Port 2: tau_J_d (7x1) */
+            ssSetInputPortWidth(S, IN_TAU_J_D, 7);
+            ssSetInputPortDataType(S, IN_TAU_J_D, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_TAU_J_D, 1);
+            ssSetInputPortRequiredContiguous(S, IN_TAU_J_D, 1);
+            /* Port 3: dq_d (7x1) */
+            ssSetInputPortWidth(S, IN_MOTION_CMD, 7);
+            ssSetInputPortDataType(S, IN_MOTION_CMD, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_MOTION_CMD, 1);
+            ssSetInputPortRequiredContiguous(S, IN_MOTION_CMD, 1);
+            break;
+            
+        case CTRL_TORQUES_CARTESIAN_POSE:
+            /* Port 2: tau_J_d (7x1) */
+            ssSetInputPortWidth(S, IN_TAU_J_D, 7);
+            ssSetInputPortDataType(S, IN_TAU_J_D, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_TAU_J_D, 1);
+            ssSetInputPortRequiredContiguous(S, IN_TAU_J_D, 1);
+            /* Port 3: O_T_EE_d (16x1, 4x4 col-major) */
+            ssSetInputPortWidth(S, IN_MOTION_CMD, 16);
+            ssSetInputPortDataType(S, IN_MOTION_CMD, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_MOTION_CMD, 1);
+            ssSetInputPortRequiredContiguous(S, IN_MOTION_CMD, 1);
+            /* Port 4: elbow_d (2x1) */
+            ssSetInputPortWidth(S, IN_ELBOW_DUAL, 2);
+            ssSetInputPortDataType(S, IN_ELBOW_DUAL, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_ELBOW_DUAL, 1);
+            ssSetInputPortRequiredContiguous(S, IN_ELBOW_DUAL, 1);
+            break;
+            
+        case CTRL_TORQUES_CARTESIAN_VELOCITIES:
+            /* Port 2: tau_J_d (7x1) */
+            ssSetInputPortWidth(S, IN_TAU_J_D, 7);
+            ssSetInputPortDataType(S, IN_TAU_J_D, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_TAU_J_D, 1);
+            ssSetInputPortRequiredContiguous(S, IN_TAU_J_D, 1);
+            /* Port 3: O_dP_EE_d (6x1) */
+            ssSetInputPortWidth(S, IN_MOTION_CMD, 6);
+            ssSetInputPortDataType(S, IN_MOTION_CMD, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_MOTION_CMD, 1);
+            ssSetInputPortRequiredContiguous(S, IN_MOTION_CMD, 1);
+            /* Port 4: elbow_d (2x1) */
+            ssSetInputPortWidth(S, IN_ELBOW_DUAL, 2);
+            ssSetInputPortDataType(S, IN_ELBOW_DUAL, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_ELBOW_DUAL, 1);
+            ssSetInputPortRequiredContiguous(S, IN_ELBOW_DUAL, 1);
+            break;
+            
+        default:
+            /* Fallback: torque mode */
+            ssSetInputPortWidth(S, IN_COMMAND, 7);
+            ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
+            ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
+            ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
+            break;
     }
     
     /* ====================================================================

@@ -90,6 +90,38 @@ void FrankaRobotContext::setCartesianVelocityInputPointer(const double* O_dP_EE_
     elbow_d_in_ = elbow_d_ptr;
 }
 
+// ============================================================================
+// Dual-Callback Mode Input Setters
+// ============================================================================
+
+void FrankaRobotContext::setTorquesJointPositionInputPointers(const double* tau_J_d_ptr,
+                                                               const double* q_d_ptr) {
+    tau_J_d_in_ = tau_J_d_ptr;
+    q_d_in_ = q_d_ptr;
+}
+
+void FrankaRobotContext::setTorquesJointVelocityInputPointers(const double* tau_J_d_ptr,
+                                                               const double* dq_d_ptr) {
+    tau_J_d_in_ = tau_J_d_ptr;
+    dq_d_in_ = dq_d_ptr;
+}
+
+void FrankaRobotContext::setTorquesCartesianPoseInputPointers(const double* tau_J_d_ptr,
+                                                               const double* O_T_EE_d_ptr,
+                                                               const double* elbow_d_ptr) {
+    tau_J_d_in_ = tau_J_d_ptr;
+    O_T_EE_d_in_ = O_T_EE_d_ptr;
+    elbow_d_in_ = elbow_d_ptr;
+}
+
+void FrankaRobotContext::setTorquesCartesianVelocityInputPointers(const double* tau_J_d_ptr,
+                                                                   const double* O_dP_EE_d_ptr,
+                                                                   const double* elbow_d_ptr) {
+    tau_J_d_in_ = tau_J_d_ptr;
+    O_dP_EE_d_in_ = O_dP_EE_d_ptr;
+    elbow_d_in_ = elbow_d_ptr;
+}
+
 void FrankaRobotContext::shutdown() {
     if (running_) {
         requestStop();
@@ -133,6 +165,9 @@ bool FrankaRobotContext::isControlRunning() const {
 void FrankaRobotContext::controlThreadFunc() {
     try {
         switch (control_mode_) {
+            // ================================================================
+            // Single-callback modes (0-4)
+            // ================================================================
             case FrankaControlMode::Torques:
                 robot_->control(
                     [this](const franka::RobotState& state, franka::Duration period) 
@@ -187,6 +222,69 @@ void FrankaRobotContext::controlThreadFunc() {
                         return this->cartesianVelocityCallback(state, period);
                     },
                     franka::ControllerMode::kCartesianImpedance,
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            // ================================================================
+            // Dual-callback modes (5-8): Torque + Motion Generator
+            // ================================================================
+            case FrankaControlMode::TorquesJointPositions:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::Torques {
+                        return this->dualTorqueCallback(state, period);
+                    },
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::JointPositions {
+                        return this->dualJointPositionMotionCallback(state, period);
+                    },
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            case FrankaControlMode::TorquesJointVelocities:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::Torques {
+                        return this->dualTorqueCallback(state, period);
+                    },
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::JointVelocities {
+                        return this->dualJointVelocityMotionCallback(state, period);
+                    },
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            case FrankaControlMode::TorquesCartesianPose:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::Torques {
+                        return this->dualTorqueCallback(state, period);
+                    },
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::CartesianPose {
+                        return this->dualCartesianPoseMotionCallback(state, period);
+                    },
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            case FrankaControlMode::TorquesCartesianVelocities:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::Torques {
+                        return this->dualTorqueCallback(state, period);
+                    },
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::CartesianVelocities {
+                        return this->dualCartesianVelocityMotionCallback(state, period);
+                    },
                     /*limit_rate=*/true,
                     /*cutoff_frequency=*/100.0
                 );
@@ -386,6 +484,125 @@ franka::CartesianVelocities FrankaRobotContext::cartesianVelocityCallback(
         std::copy(elbow_d_in_, elbow_d_in_ + 2, elbow_cmd.begin());
     } else {
         // Default to current elbow configuration
+        elbow_cmd = state.elbow_d;
+    }
+    sanitizeArray(elbow_cmd, "elbow_d");
+    
+    return franka::CartesianVelocities(vel_cmd, elbow_cmd);
+}
+
+// ============================================================================
+// Dual-Callback Mode Callbacks
+// ============================================================================
+
+franka::Torques FrankaRobotContext::dualTorqueCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    // Note: In dual-callback mode, executePreCallback is called from the torque callback
+    // The motion generator callback should NOT call executePreCallback again
+    if (!executePreCallback(state, period)) {
+        return franka::MotionFinished(franka::Torques({0, 0, 0, 0, 0, 0, 0}));
+    }
+    
+    // Read commanded torques from Simulink input
+    std::array<double, 7> tau_cmd{};
+    if (tau_J_d_in_) {
+        std::copy(tau_J_d_in_, tau_J_d_in_ + 7, tau_cmd.begin());
+    }
+    sanitizeArray(tau_cmd, "tau_J_d");
+    
+    return franka::Torques(tau_cmd);
+}
+
+franka::JointPositions FrankaRobotContext::dualJointPositionMotionCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    // Check stop request (executePreCallback was called in torque callback)
+    if (stop_requested_) {
+        return franka::MotionFinished(franka::JointPositions(state.q_d));
+    }
+    
+    // Read commanded joint positions from Simulink input
+    std::array<double, 7> q_cmd{};
+    if (q_d_in_) {
+        std::copy(q_d_in_, q_d_in_ + 7, q_cmd.begin());
+    } else {
+        q_cmd = state.q_d;
+    }
+    sanitizeArray(q_cmd, "q_d");
+    
+    return franka::JointPositions(q_cmd);
+}
+
+franka::JointVelocities FrankaRobotContext::dualJointVelocityMotionCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (stop_requested_) {
+        return franka::MotionFinished(franka::JointVelocities({0, 0, 0, 0, 0, 0, 0}));
+    }
+    
+    // Read commanded joint velocities from Simulink input
+    std::array<double, 7> dq_cmd{};
+    if (dq_d_in_) {
+        std::copy(dq_d_in_, dq_d_in_ + 7, dq_cmd.begin());
+    }
+    sanitizeArray(dq_cmd, "dq_d");
+    
+    return franka::JointVelocities(dq_cmd);
+}
+
+franka::CartesianPose FrankaRobotContext::dualCartesianPoseMotionCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (stop_requested_) {
+        return franka::MotionFinished(franka::CartesianPose(state.O_T_EE_d, state.elbow_d));
+    }
+    
+    // Read commanded Cartesian pose from Simulink input
+    std::array<double, 16> pose_cmd{};
+    if (O_T_EE_d_in_) {
+        std::copy(O_T_EE_d_in_, O_T_EE_d_in_ + 16, pose_cmd.begin());
+    } else {
+        pose_cmd = state.O_T_EE_d;
+    }
+    sanitizeArray(pose_cmd, "O_T_EE_d");
+    
+    // Read elbow configuration
+    std::array<double, 2> elbow_cmd{};
+    if (elbow_d_in_) {
+        std::copy(elbow_d_in_, elbow_d_in_ + 2, elbow_cmd.begin());
+    } else {
+        elbow_cmd = state.elbow_d;
+    }
+    sanitizeArray(elbow_cmd, "elbow_d");
+    
+    return franka::CartesianPose(pose_cmd, elbow_cmd);
+}
+
+franka::CartesianVelocities FrankaRobotContext::dualCartesianVelocityMotionCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (stop_requested_) {
+        return franka::MotionFinished(franka::CartesianVelocities({0, 0, 0, 0, 0, 0}, state.elbow_d));
+    }
+    
+    // Read commanded Cartesian velocity from Simulink input
+    std::array<double, 6> vel_cmd{};
+    if (O_dP_EE_d_in_) {
+        std::copy(O_dP_EE_d_in_, O_dP_EE_d_in_ + 6, vel_cmd.begin());
+    }
+    sanitizeArray(vel_cmd, "O_dP_EE_d");
+    
+    // Read elbow configuration
+    std::array<double, 2> elbow_cmd{};
+    if (elbow_d_in_) {
+        std::copy(elbow_d_in_, elbow_d_in_ + 2, elbow_cmd.begin());
+    } else {
         elbow_cmd = state.elbow_d;
     }
     sanitizeArray(elbow_cmd, "elbow_d");

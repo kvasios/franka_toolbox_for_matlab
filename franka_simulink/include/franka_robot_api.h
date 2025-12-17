@@ -29,13 +29,22 @@
  * @brief Control mode enumeration
  * 
  * Matches the block mask dropdown order for mode selection.
+ * 
+ * Single-callback modes (0-4) use the robot's internal controller for non-torque modes.
+ * Dual-callback modes (5-8) allow user to provide both torque AND motion generator callbacks.
  */
 enum class FrankaControlMode {
-    Torques = 0,            ///< Direct torque control
-    JointPositions = 1,     ///< Joint position control with internal impedance
-    JointVelocities = 2,    ///< Joint velocity control with internal impedance
-    CartesianPose = 3,      ///< Cartesian pose control with internal impedance
-    CartesianVelocities = 4 ///< Cartesian velocity control with internal impedance
+    /* Single-callback modes */
+    Torques = 0,                    ///< Direct torque control
+    JointPositions = 1,             ///< Joint position with internal impedance
+    JointVelocities = 2,            ///< Joint velocity with internal impedance
+    CartesianPose = 3,              ///< Cartesian pose with internal impedance
+    CartesianVelocities = 4,        ///< Cartesian velocity with internal impedance
+    /* Dual-callback modes (torque + motion generator) */
+    TorquesJointPositions = 5,      ///< External torque + joint position motion gen
+    TorquesJointVelocities = 6,     ///< External torque + joint velocity motion gen
+    TorquesCartesianPose = 7,       ///< External torque + Cartesian pose motion gen
+    TorquesCartesianVelocities = 8  ///< External torque + Cartesian velocity motion gen
 };
 
 /**
@@ -155,6 +164,44 @@ public:
      */
     void setCartesianVelocityInputPointer(const double* O_dP_EE_d_ptr, const double* elbow_d_ptr);
     
+    // ========================================================================
+    // Dual-callback mode input setters (torque + motion generator)
+    // ========================================================================
+    
+    /**
+     * @brief Set input pointers for Torques+JointPositions dual mode
+     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
+     * @param q_d_ptr Pointer to q_d input [7] (rad)
+     */
+    void setTorquesJointPositionInputPointers(const double* tau_J_d_ptr, const double* q_d_ptr);
+    
+    /**
+     * @brief Set input pointers for Torques+JointVelocities dual mode
+     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
+     * @param dq_d_ptr Pointer to dq_d input [7] (rad/s)
+     */
+    void setTorquesJointVelocityInputPointers(const double* tau_J_d_ptr, const double* dq_d_ptr);
+    
+    /**
+     * @brief Set input pointers for Torques+CartesianPose dual mode
+     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
+     * @param O_T_EE_d_ptr Pointer to O_T_EE_d input [16] (4x4 col-major, m)
+     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
+     */
+    void setTorquesCartesianPoseInputPointers(const double* tau_J_d_ptr, 
+                                               const double* O_T_EE_d_ptr, 
+                                               const double* elbow_d_ptr);
+    
+    /**
+     * @brief Set input pointers for Torques+CartesianVelocities dual mode
+     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
+     * @param O_dP_EE_d_ptr Pointer to O_dP_EE_d input [6] (m/s, rad/s)
+     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
+     */
+    void setTorquesCartesianVelocityInputPointers(const double* tau_J_d_ptr,
+                                                   const double* O_dP_EE_d_ptr,
+                                                   const double* elbow_d_ptr);
+    
     /**
      * @brief Shutdown and cleanup
      */
@@ -182,7 +229,9 @@ public:
 private:
     void controlThreadFunc();
     
-    // Mode-specific callbacks (return type determines control mode in libfranka)
+    // ========================================================================
+    // Single-callback mode callbacks
+    // ========================================================================
     franka::Torques torqueCallback(const franka::RobotState& state,
                                     franka::Duration period);
     franka::JointPositions jointPositionCallback(const franka::RobotState& state,
@@ -193,6 +242,21 @@ private:
                                                  franka::Duration period);
     franka::CartesianVelocities cartesianVelocityCallback(const franka::RobotState& state,
                                                            franka::Duration period);
+    
+    // ========================================================================
+    // Dual-callback mode callbacks (torque + motion generator)
+    // These return Torques for the torque callback part
+    // ========================================================================
+    franka::Torques dualTorqueCallback(const franka::RobotState& state,
+                                        franka::Duration period);
+    franka::JointPositions dualJointPositionMotionCallback(const franka::RobotState& state,
+                                                            franka::Duration period);
+    franka::JointVelocities dualJointVelocityMotionCallback(const franka::RobotState& state,
+                                                             franka::Duration period);
+    franka::CartesianPose dualCartesianPoseMotionCallback(const franka::RobotState& state,
+                                                           franka::Duration period);
+    franka::CartesianVelocities dualCartesianVelocityMotionCallback(const franka::RobotState& state,
+                                                                     franka::Duration period);
     
     // Common pre-callback logic (state copy, model compute, controller execute)
     // Returns true if control should continue, false if stop requested

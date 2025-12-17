@@ -5,11 +5,19 @@
 %%  directly executes the function-call subsystem (user's controller).
 %%
 %%  Supports multiple control modes:
+%%
+%%  Single-callback modes (internal controller for non-torque):
 %%    0: Torques           - Direct torque control
 %%    1: JointPositions    - Joint position with internal impedance
 %%    2: JointVelocities   - Joint velocity with internal impedance
 %%    3: CartesianPose     - Cartesian pose with internal impedance
 %%    4: CartesianVelocities - Cartesian velocity with internal impedance
+%%
+%%  Dual-callback modes (user torque + motion generator):
+%%    5: Torques + JointPositions      - External torque + joint pos motion gen
+%%    6: Torques + JointVelocities     - External torque + joint vel motion gen
+%%    7: Torques + CartesianPose       - External torque + Cartesian pose motion gen
+%%    8: Torques + CartesianVelocities - External torque + Cartesian vel motion gen
 %%
 %%  robot_ip is provided via input port 1 (not as a parameter).
 %%  control_mode is provided via S-function parameter.
@@ -167,19 +175,37 @@
          *   Port 3: dt_sec (double)
          * 
          * Input port layout (mode-dependent):
-         *   Port 0: Enable
-         *   Port 1: robot_ip
-         *   Port 2: command (tau_J_d / q_d / dq_d / O_T_EE_d / O_dP_EE_d)
-         *   Port 3: elbow_d (only for Cartesian modes 3-4)
+         *   Single modes (0-4):
+         *     Port 0: Enable
+         *     Port 1: robot_ip
+         *     Port 2: command (tau_J_d / q_d / dq_d / O_T_EE_d / O_dP_EE_d)
+         *     Port 3: elbow_d (only for Cartesian modes 3-4)
+         *   Dual modes (5-8):
+         *     Port 0: Enable
+         *     Port 1: robot_ip
+         *     Port 2: tau_J_d
+         *     Port 3: motion_cmd (q_d / dq_d / O_T_EE_d / O_dP_EE_d)
+         *     Port 4: elbow_d (only for Cartesian modes 7-8)
          */
         %assign bsMember = "%<::CompiledModel.Name>_B"
         %assign stateExpr = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
         %assign modelExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
         %assign dtExpr = "%<LibBlockOutputSignalAddr(3, "", "", 0)>"
-        %assign cmdExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
-        %% Elbow input only exists for Cartesian modes (3 and 4)
-        %if controlMode == 3 || controlMode == 4
-            %assign elbowExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+        
+        %% Assign input expressions based on mode
+        %if controlMode <= 4
+            %% Single-callback modes: Port 2 = command
+            %assign cmdExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
+            %if controlMode == 3 || controlMode == 4
+                %assign elbowExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+            %endif
+        %else
+            %% Dual-callback modes: Port 2 = tau_J_d, Port 3 = motion_cmd
+            %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
+            %assign motionExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+            %if controlMode == 7 || controlMode == 8
+                %assign elbowExpr = "%<LibBlockInputSignalAddr(4, "", "", 0)>"
+            %endif
         %endif
 
         %if GenerateClassInterface
@@ -189,9 +215,17 @@
             %assign stateExprCtrl = FEVAL("strrep", stateExpr, fromPrefix, toPrefix)
             %assign modelExprCtrl = FEVAL("strrep", modelExpr, fromPrefix, toPrefix)
             %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
-            %assign cmdExprCtrl = FEVAL("strrep", cmdExpr, fromPrefix, toPrefix)
-            %if controlMode == 3 || controlMode == 4
-                %assign elbowExprCtrl = FEVAL("strrep", elbowExpr, fromPrefix, toPrefix)
+            %if controlMode <= 4
+                %assign cmdExprCtrl = FEVAL("strrep", cmdExpr, fromPrefix, toPrefix)
+                %if controlMode == 3 || controlMode == 4
+                    %assign elbowExprCtrl = FEVAL("strrep", elbowExpr, fromPrefix, toPrefix)
+                %endif
+            %else
+                %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
+                %assign motionExprCtrl = FEVAL("strrep", motionExpr, fromPrefix, toPrefix)
+                %if controlMode == 7 || controlMode == 8
+                    %assign elbowExprCtrl = FEVAL("strrep", elbowExpr, fromPrefix, toPrefix)
+                %endif
             %endif
 
             /* Initialize controller model state (atomic Controller subsystem). */
@@ -237,6 +271,7 @@
             
             /* Set input pointers (mode-specific) */
             %switch controlMode
+                %% Single-callback modes (0-4)
                 %case 0  %% Torques
                     %<ctxName>.setTorqueInputPointer(%<cmdExprCtrl>);
                     %break
@@ -252,6 +287,19 @@
                 %case 4  %% CartesianVelocities
                     %<ctxName>.setCartesianVelocityInputPointer(%<cmdExprCtrl>, %<elbowExprCtrl>);
                     %break
+                %% Dual-callback modes (5-8)
+                %case 5  %% Torques + JointPositions
+                    %<ctxName>.setTorquesJointPositionInputPointers(%<tauExprCtrl>, %<motionExprCtrl>);
+                    %break
+                %case 6  %% Torques + JointVelocities
+                    %<ctxName>.setTorquesJointVelocityInputPointers(%<tauExprCtrl>, %<motionExprCtrl>);
+                    %break
+                %case 7  %% Torques + CartesianPose
+                    %<ctxName>.setTorquesCartesianPoseInputPointers(%<tauExprCtrl>, %<motionExprCtrl>, %<elbowExprCtrl>);
+                    %break
+                %case 8  %% Torques + CartesianVelocities
+                    %<ctxName>.setTorquesCartesianVelocityInputPointers(%<tauExprCtrl>, %<motionExprCtrl>, %<elbowExprCtrl>);
+                    %break
             %endswitch
         %else
             /* In nonreusable function packaging, use generated block signals directly. */
@@ -265,6 +313,7 @@
             
             /* Set input pointers (mode-specific) */
             %switch controlMode
+                %% Single-callback modes (0-4)
                 %case 0  %% Torques
                     %<ctxName>.setTorqueInputPointer(%<cmdExpr>);
                     %break
@@ -279,6 +328,19 @@
                     %break
                 %case 4  %% CartesianVelocities
                     %<ctxName>.setCartesianVelocityInputPointer(%<cmdExpr>, %<elbowExpr>);
+                    %break
+                %% Dual-callback modes (5-8)
+                %case 5  %% Torques + JointPositions
+                    %<ctxName>.setTorquesJointPositionInputPointers(%<tauExpr>, %<motionExpr>);
+                    %break
+                %case 6  %% Torques + JointVelocities
+                    %<ctxName>.setTorquesJointVelocityInputPointers(%<tauExpr>, %<motionExpr>);
+                    %break
+                %case 7  %% Torques + CartesianPose
+                    %<ctxName>.setTorquesCartesianPoseInputPointers(%<tauExpr>, %<motionExpr>, %<elbowExpr>);
+                    %break
+                %case 8  %% Torques + CartesianVelocities
+                    %<ctxName>.setTorquesCartesianVelocityInputPointers(%<tauExpr>, %<motionExpr>, %<elbowExpr>);
                     %break
             %endswitch
         %endif
