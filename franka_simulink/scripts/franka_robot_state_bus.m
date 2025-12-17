@@ -299,6 +299,11 @@ function bus = franka_robot_state_bus()
     bus = Simulink.Bus();
     bus.Description = 'Complete robot state from libfranka (franka::RobotState)';
     bus.Elements = elems;
+    
+    % Tell Simulink Coder to use our pre-defined C struct instead of generating one
+    % This prevents redefinition errors during code generation
+    bus.HeaderFile = 'franka_simulink_types.h';
+    bus.DataScope = 'Imported';  % Type is defined externally (not generated)
 end
 
 function elem = create_element(name, dims, datatype, description)
