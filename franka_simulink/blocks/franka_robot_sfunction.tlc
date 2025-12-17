@@ -13,6 +13,7 @@
 %% ========================================================================
 %function BlockTypeSetup(block, system) void
     %<LibAddToCommonIncludes("franka_robot_api.h")>
+    %<LibAddToCommonIncludes("franka_simulink_types.h")>
     %<LibAddToCommonIncludes("<type_traits>")>
 %endfunction
 
@@ -142,19 +143,28 @@
             #error "franka_robot: could not resolve function-call subsystem entry point (OutputUpdateFcn='none'). Make the Controller subsystem callable (not inlined)."
         %endif
 
-        /* Wire Franka <-> Simulink signals. */
+        /* Wire Franka <-> Simulink signals.
+         * 
+         * Output port layout:
+         *   Port 0: Function-call (no data)
+         *   Port 1: robot_state (FrankaRobotStateBus struct)
+         *   Port 2: dt_sec (double)
+         * 
+         * Input port layout:
+         *   Port 0: Enable
+         *   Port 1: robot_ip
+         *   Port 2: tau_J_d
+         */
         %assign bsMember = "%<::CompiledModel.Name>_B"
-        %assign qExpr  = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
-        %assign dqExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
-        %assign dtExpr = "%<LibBlockOutputSignalAddr(3, "", "", 0)>"
+        %assign stateExpr = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
+        %assign dtExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
         %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
 
         %if GenerateClassInterface
             /* In class interface packaging, redirect I/O to the dedicated controller object. */
             %assign fromPrefix = "&%<bsMember>."
             %assign toPrefix = "&franka_controller_model.%<bsMember>."
-            %assign qExprCtrl = FEVAL("strrep", qExpr, fromPrefix, toPrefix)
-            %assign dqExprCtrl = FEVAL("strrep", dqExpr, fromPrefix, toPrefix)
+            %assign stateExprCtrl = FEVAL("strrep", stateExpr, fromPrefix, toPrefix)
             %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
             %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
 
@@ -190,24 +200,21 @@
                 franka_controller_model.%<ctrlEnableFcn>();
             %endif
 
-            %<ctxName>.setOutputPointers(
-                %<qExprCtrl>,   /* q [7] */
-                %<dqExprCtrl>,  /* dq [7] */
-                %<dtExprCtrl>   /* dt_sec [1] */
+            /* Set output pointers (robot state bus + dt_sec) */
+            %<ctxName>.setStateOutputPointer(
+                reinterpret_cast<FrankaRobotStateBus*>(%<stateExprCtrl>)
             );
-            %<ctxName>.setInputPointers(
-                %<tauExprCtrl>  /* tau_J_d [7] */
-            );
+            %<ctxName>.setDtOutputPointer(%<dtExprCtrl>);
+            
+            /* Set input pointers (tau_J_d) */
+            %<ctxName>.setInputPointers(%<tauExprCtrl>);
         %else
-            /* In nonreusable function packaging, just use the generated block signals directly. */
-            %<ctxName>.setOutputPointers(
-                %<qExpr>,   /* q [7] */
-                %<dqExpr>,  /* dq [7] */
-                %<dtExpr>   /* dt_sec [1] */
+            /* In nonreusable function packaging, use generated block signals directly. */
+            %<ctxName>.setStateOutputPointer(
+                reinterpret_cast<FrankaRobotStateBus*>(%<stateExpr>)
             );
-            %<ctxName>.setInputPointers(
-                %<tauExpr>  /* tau_J_d [7] */
-            );
+            %<ctxName>.setDtOutputPointer(%<dtExpr>);
+            %<ctxName>.setInputPointers(%<tauExpr>);
         %endif
     %endif
     

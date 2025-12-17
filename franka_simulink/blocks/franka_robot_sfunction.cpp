@@ -10,10 +10,14 @@
  *   2. tau_J_d   (7x1)   - Commanded joint torques (read from controller subsystem)
  *
  * Outputs:
- *   0. fcall     (function-call) - Triggers controller subsystem at inherited rate [MUST BE FIRST]
- *   1. q         (7x1) - Measured joint positions
- *   2. dq        (7x1) - Measured joint velocities
- *   3. dt_sec    (1x1) - Measured control period from libfranka callback [s]
+ *   0. fcall       (function-call)      - Triggers controller at 1kHz [MUST BE FIRST]
+ *   1. robot_state (FrankaRobotStateBus) - Complete robot state from libfranka
+ *   2. dt_sec      (1x1)                - Control period from callback [s]
+ *
+ * Bus Definition:
+ *   The robot_state output uses the FrankaRobotStateBus type, which must be
+ *   defined in the base workspace before simulation/code generation.
+ *   Use: FrankaRobotStateBus = franka_robot_state_bus();
  *
  * Copyright (c) 2025 Franka Robotics GmbH
  */
@@ -40,11 +44,10 @@
 #define NUM_INPUTS    3
 
 /* Output port indices */
-#define OUT_FCALL     0   /* Function-call output - MUST BE FIRST */
-#define OUT_Q         1
-#define OUT_DQ        2
-#define OUT_DT_SEC    3
-#define NUM_OUTPUTS   4
+#define OUT_FCALL       0   /* Function-call output - MUST BE FIRST */
+#define OUT_STATE       1   /* Robot state bus (FrankaRobotStateBus) */
+#define OUT_DT_SEC      2   /* Control period [s] */
+#define NUM_OUTPUTS     3
 
 /* DWork indices */
 #define DWORK_PREV_ENABLE 0
@@ -102,15 +105,29 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetOutputPortWidth(S, OUT_FCALL, 1);
     ssSetOutputPortDataType(S, OUT_FCALL, SS_FCN_CALL);
     
-    /* Port 1: q (7x1) */
-    ssSetOutputPortWidth(S, OUT_Q, 7);
-    ssSetOutputPortDataType(S, OUT_Q, SS_DOUBLE);
-    
-    /* Port 2: dq (7x1) */
-    ssSetOutputPortWidth(S, OUT_DQ, 7);
-    ssSetOutputPortDataType(S, OUT_DQ, SS_DOUBLE);
+    /* Port 1: robot_state (FrankaRobotStateBus)
+     * 
+     * Bus output configuration:
+     * - The bus object 'FrankaRobotStateBus' must exist in base workspace
+     * - Register the bus as a data type and use it for the port
+     * - Output as nonvirtual bus (struct in generated code)
+     * 
+     * For code generation, the TLC uses the C struct FrankaRobotStateBus
+     * from franka_simulink_types.h which matches the bus layout.
+     */
+#if defined(MATLAB_MEX_FILE)
+    {
+        /* Register bus object as a data type */
+        DTypeId busTypeId;
+        ssRegisterTypeFromNamedObject(S, "FrankaRobotStateBus", &busTypeId);
+        ssSetOutputPortDataType(S, OUT_STATE, busTypeId);
+    }
+#endif
+    ssSetOutputPortWidth(S, OUT_STATE, 1);
+    ssSetBusOutputObjectName(S, OUT_STATE, (void*)"FrankaRobotStateBus");
+    ssSetBusOutputAsStruct(S, OUT_STATE, 1);
 
-    /* Port 3: dt_sec (1x1) */
+    /* Port 2: dt_sec (1x1) - control period from callback */
     ssSetOutputPortWidth(S, OUT_DT_SEC, 1);
     ssSetOutputPortDataType(S, OUT_DT_SEC, SS_DOUBLE);
     
@@ -170,17 +187,17 @@ static void mdlStart(SimStruct *S)
  * ======================================================================== */
 static void mdlOutputs(SimStruct *S, int_T tid)
 {
-    /* For simulation only - actual implementation is in TLC */
-    real_T *q  = ssGetOutputPortRealSignal(S, OUT_Q);
-    real_T *dq = ssGetOutputPortRealSignal(S, OUT_DQ);
+    /* For simulation only - actual implementation is in TLC.
+     * 
+     * The robot_state bus output is handled by Simulink's bus infrastructure.
+     * We just need to ensure dt_sec is zeroed for simulation.
+     */
     real_T *dt_sec = ssGetOutputPortRealSignal(S, OUT_DT_SEC);
-    
-    /* Output zeros in simulation */
-    for (int i = 0; i < 7; i++) {
-        q[i]  = 0.0;
-        dq[i] = 0.0;
-    }
     dt_sec[0] = 0.0;
+    
+    /* Note: The bus output (OUT_STATE) is automatically initialized to zero
+     * by Simulink when using bus objects. No manual zeroing needed.
+     */
     
     UNUSED_ARG(tid);
 }

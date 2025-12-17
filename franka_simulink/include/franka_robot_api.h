@@ -22,6 +22,8 @@
 #include <franka/robot.h>
 #include <franka/model.h>
 
+#include "franka_simulink_types.h"
+
 /**
  * @brief Type for the controller callback function
  * 
@@ -73,12 +75,19 @@ public:
     void setControllerCallback(ControllerCallback callback, void* user_data);
     
     /**
-     * @brief Set pointers to Simulink output signals
-     * @param q_ptr Pointer to q output [7]
-     * @param dq_ptr Pointer to dq output [7]
-     * @param dt_sec_ptr Pointer to dt output [1] (seconds)
+     * @brief Set pointer to Simulink robot state output bus
+     * @param state_ptr Pointer to FrankaRobotStateBus output
      */
-    void setOutputPointers(double* q_ptr, double* dq_ptr, double* dt_sec_ptr);
+    void setStateOutputPointer(FrankaRobotStateBus* state_ptr);
+    
+    /**
+     * @brief Set pointer to dt_sec output (control period)
+     * @param dt_sec_ptr Pointer to dt output [1] (seconds)
+     * 
+     * Note: dt_sec is also available in the state bus as 'time' (cumulative),
+     * but this separate output provides the per-callback period directly.
+     */
+    void setDtOutputPointer(double* dt_sec_ptr);
     
     /**
      * @brief Set pointers to Simulink input signals
@@ -133,10 +142,12 @@ private:
     void* controller_user_data_{nullptr};
     
     // Pointers to Simulink I/O signals
-    double* q_out_{nullptr};
-    double* dq_out_{nullptr};
+    FrankaRobotStateBus* state_out_{nullptr};
     double* dt_sec_out_{nullptr};
     const double* tau_J_d_in_{nullptr};
+    
+    // Helper to copy franka::RobotState to FrankaRobotStateBus
+    void copyRobotState(const franka::RobotState& src, FrankaRobotStateBus* dst);
 };
 
 #endif // FRANKA_ROBOT_API_H

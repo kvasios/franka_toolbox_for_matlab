@@ -46,9 +46,11 @@ void FrankaRobotContext::setControllerCallback(ControllerCallback callback, void
     controller_user_data_ = user_data;
 }
 
-void FrankaRobotContext::setOutputPointers(double* q_ptr, double* dq_ptr, double* dt_sec_ptr) {
-    q_out_ = q_ptr;
-    dq_out_ = dq_ptr;
+void FrankaRobotContext::setStateOutputPointer(FrankaRobotStateBus* state_ptr) {
+    state_out_ = state_ptr;
+}
+
+void FrankaRobotContext::setDtOutputPointer(double* dt_sec_ptr) {
     dt_sec_out_ = dt_sec_ptr;
 }
 
@@ -123,13 +125,10 @@ franka::Torques FrankaRobotContext::controlCallback(
     }
     
     // ========================================================================
-    // Step 1: Copy robot state to Simulink outputs
+    // Step 1: Copy robot state to Simulink output bus
     // ========================================================================
-    if (q_out_) {
-        std::copy(state.q.begin(), state.q.end(), q_out_);
-    }
-    if (dq_out_) {
-        std::copy(state.dq.begin(), state.dq.end(), dq_out_);
+    if (state_out_) {
+        copyRobotState(state, state_out_);
     }
 
     // ========================================================================
@@ -181,4 +180,112 @@ franka::Torques FrankaRobotContext::controlCallback(
     }
     
     return franka::Torques(tau_cmd);
+}
+
+// ============================================================================
+// State Copying
+// ============================================================================
+
+void FrankaRobotContext::copyRobotState(const franka::RobotState& src, 
+                                         FrankaRobotStateBus* dst) {
+    // Helper macro to copy std::array to C array (1D)
+    #define COPY_ARRAY(field) \
+        std::copy(src.field.begin(), src.field.end(), dst->field)
+    
+    // Helper macro to copy std::array to 2D C array (contiguous memory)
+    // Both libfranka and Simulink use column-major order, so direct copy works
+    #define COPY_MATRIX_4x4(field) \
+        std::copy(src.field.begin(), src.field.end(), &dst->field[0][0])
+    
+    #define COPY_MATRIX_3x3(field) \
+        std::copy(src.field.begin(), src.field.end(), &dst->field[0][0])
+    
+    // ------------------------------------------------------------------------
+    // Transformation Matrices (4x4)
+    // ------------------------------------------------------------------------
+    COPY_MATRIX_4x4(O_T_EE);
+    COPY_MATRIX_4x4(O_T_EE_d);
+    COPY_MATRIX_4x4(F_T_EE);
+    COPY_MATRIX_4x4(F_T_NE);
+    COPY_MATRIX_4x4(NE_T_EE);
+    COPY_MATRIX_4x4(EE_T_K);
+    COPY_MATRIX_4x4(O_T_EE_c);
+    
+    // ------------------------------------------------------------------------
+    // End Effector Inertial Parameters
+    // ------------------------------------------------------------------------
+    dst->m_ee = src.m_ee;
+    COPY_MATRIX_3x3(I_ee);
+    COPY_ARRAY(F_x_Cee);
+    
+    // ------------------------------------------------------------------------
+    // External Load Inertial Parameters
+    // ------------------------------------------------------------------------
+    dst->m_load = src.m_load;
+    COPY_MATRIX_3x3(I_load);
+    COPY_ARRAY(F_x_Cload);
+    
+    // ------------------------------------------------------------------------
+    // Total Inertial Parameters
+    // ------------------------------------------------------------------------
+    dst->m_total = src.m_total;
+    COPY_MATRIX_3x3(I_total);
+    COPY_ARRAY(F_x_Ctotal);
+    
+    // ------------------------------------------------------------------------
+    // Elbow Configuration
+    // ------------------------------------------------------------------------
+    COPY_ARRAY(elbow);
+    COPY_ARRAY(elbow_d);
+    COPY_ARRAY(elbow_c);
+    COPY_ARRAY(delbow_c);
+    COPY_ARRAY(ddelbow_c);
+    
+    // ------------------------------------------------------------------------
+    // Joint-Space Signals
+    // ------------------------------------------------------------------------
+    COPY_ARRAY(tau_J);
+    COPY_ARRAY(tau_J_d);
+    COPY_ARRAY(dtau_J);
+    COPY_ARRAY(q);
+    COPY_ARRAY(q_d);
+    COPY_ARRAY(dq);
+    COPY_ARRAY(dq_d);
+    COPY_ARRAY(ddq_d);
+    COPY_ARRAY(theta);
+    COPY_ARRAY(dtheta);
+    
+    // ------------------------------------------------------------------------
+    // Contact and Collision Detection
+    // ------------------------------------------------------------------------
+    COPY_ARRAY(joint_contact);
+    COPY_ARRAY(cartesian_contact);
+    COPY_ARRAY(joint_collision);
+    COPY_ARRAY(cartesian_collision);
+    
+    // ------------------------------------------------------------------------
+    // External Force Estimates
+    // ------------------------------------------------------------------------
+    COPY_ARRAY(tau_ext_hat_filtered);
+    COPY_ARRAY(O_F_ext_hat_K);
+    COPY_ARRAY(K_F_ext_hat_K);
+    
+    // ------------------------------------------------------------------------
+    // Cartesian Motion Signals
+    // ------------------------------------------------------------------------
+    COPY_ARRAY(O_dP_EE_d);
+    COPY_ARRAY(O_ddP_O);
+    COPY_ARRAY(O_dP_EE_c);
+    COPY_ARRAY(O_ddP_EE_c);
+    
+    // ------------------------------------------------------------------------
+    // Status Signals
+    // ------------------------------------------------------------------------
+    dst->control_command_success_rate = src.control_command_success_rate;
+    dst->robot_mode = static_cast<int32_t>(src.robot_mode);
+    dst->time = src.time.toSec();
+    
+    #undef COPY_ARRAY
+    #undef COPY_MATRIX_4x4
+    #undef COPY_MATRIX_3x3
 }
