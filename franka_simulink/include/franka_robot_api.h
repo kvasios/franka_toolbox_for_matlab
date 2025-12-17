@@ -81,6 +81,12 @@ public:
     void setStateOutputPointer(FrankaRobotStateBus* state_ptr);
     
     /**
+     * @brief Set pointer to Simulink model data output bus
+     * @param model_ptr Pointer to FrankaModelDataBus output
+     */
+    void setModelOutputPointer(FrankaModelDataBus* model_ptr);
+    
+    /**
      * @brief Set pointer to dt_sec output (control period)
      * @param dt_sec_ptr Pointer to dt output [1] (seconds)
      * 
@@ -143,11 +149,15 @@ private:
     
     // Pointers to Simulink I/O signals
     FrankaRobotStateBus* state_out_{nullptr};
+    FrankaModelDataBus* model_out_{nullptr};
     double* dt_sec_out_{nullptr};
     const double* tau_J_d_in_{nullptr};
     
     // Helper to copy franka::RobotState to FrankaRobotStateBus
     void copyRobotState(const franka::RobotState& src, FrankaRobotStateBus* dst);
+    
+    // Helper to compute and copy model data to FrankaModelDataBus
+    void computeModelData(const franka::RobotState& state, FrankaModelDataBus* dst);
 };
 
 #endif // FRANKA_ROBOT_API_H

@@ -10,14 +10,16 @@
  *   2. tau_J_d   (7x1)   - Commanded joint torques (read from controller subsystem)
  *
  * Outputs:
- *   0. fcall       (function-call)      - Triggers controller at 1kHz [MUST BE FIRST]
+ *   0. fcall       (function-call)       - Triggers controller at 1kHz [MUST BE FIRST]
  *   1. robot_state (FrankaRobotStateBus) - Complete robot state from libfranka
- *   2. dt_sec      (1x1)                - Control period from callback [s]
+ *   2. model_data  (FrankaModelDataBus)  - Computed dynamics/kinematics
+ *   3. dt_sec      (1x1)                 - Control period from callback [s]
  *
- * Bus Definition:
- *   The robot_state output uses the FrankaRobotStateBus type, which must be
- *   defined in the base workspace before simulation/code generation.
- *   Use: FrankaRobotStateBus = franka_robot_state_bus();
+ * Bus Definitions:
+ *   The bus outputs use types that must exist in base workspace:
+ *     FrankaRobotStateBus = franka_robot_state_bus();
+ *     FrankaModelDataBus = franka_model_data_bus();
+ *   Or simply call: franka_setup_bus();
  *
  * Copyright (c) 2025 Franka Robotics GmbH
  */
@@ -46,8 +48,9 @@
 /* Output port indices */
 #define OUT_FCALL       0   /* Function-call output - MUST BE FIRST */
 #define OUT_STATE       1   /* Robot state bus (FrankaRobotStateBus) */
-#define OUT_DT_SEC      2   /* Control period [s] */
-#define NUM_OUTPUTS     3
+#define OUT_MODEL       2   /* Model data bus (FrankaModelDataBus) */
+#define OUT_DT_SEC      3   /* Control period [s] */
+#define NUM_OUTPUTS     4
 
 /* DWork indices */
 #define DWORK_PREV_ENABLE 0
@@ -127,7 +130,22 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetBusOutputObjectName(S, OUT_STATE, (void*)"FrankaRobotStateBus");
     ssSetBusOutputAsStruct(S, OUT_STATE, 1);
 
-    /* Port 2: dt_sec (1x1) - control period from callback */
+    /* Port 2: model_data (FrankaModelDataBus)
+     * 
+     * Computed dynamics and kinematics from libfranka Model class.
+     */
+#if defined(MATLAB_MEX_FILE)
+    {
+        DTypeId modelBusTypeId;
+        ssRegisterTypeFromNamedObject(S, "FrankaModelDataBus", &modelBusTypeId);
+        ssSetOutputPortDataType(S, OUT_MODEL, modelBusTypeId);
+    }
+#endif
+    ssSetOutputPortWidth(S, OUT_MODEL, 1);
+    ssSetBusOutputObjectName(S, OUT_MODEL, (void*)"FrankaModelDataBus");
+    ssSetBusOutputAsStruct(S, OUT_MODEL, 1);
+
+    /* Port 3: dt_sec (1x1) - control period from callback */
     ssSetOutputPortWidth(S, OUT_DT_SEC, 1);
     ssSetOutputPortDataType(S, OUT_DT_SEC, SS_DOUBLE);
     

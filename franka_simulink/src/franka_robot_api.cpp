@@ -50,6 +50,10 @@ void FrankaRobotContext::setStateOutputPointer(FrankaRobotStateBus* state_ptr) {
     state_out_ = state_ptr;
 }
 
+void FrankaRobotContext::setModelOutputPointer(FrankaModelDataBus* model_ptr) {
+    model_out_ = model_ptr;
+}
+
 void FrankaRobotContext::setDtOutputPointer(double* dt_sec_ptr) {
     dt_sec_out_ = dt_sec_ptr;
 }
@@ -129,6 +133,13 @@ franka::Torques FrankaRobotContext::controlCallback(
     // ========================================================================
     if (state_out_) {
         copyRobotState(state, state_out_);
+    }
+    
+    // ========================================================================
+    // Step 1b: Compute and copy model data (dynamics/kinematics)
+    // ========================================================================
+    if (model_out_ && model_) {
+        computeModelData(state, model_out_);
     }
 
     // ========================================================================
@@ -288,4 +299,51 @@ void FrankaRobotContext::copyRobotState(const franka::RobotState& src,
     #undef COPY_ARRAY
     #undef COPY_MATRIX_4x4
     #undef COPY_MATRIX_3x3
+}
+
+// ============================================================================
+// Model Data Computation
+// ============================================================================
+
+void FrankaRobotContext::computeModelData(const franka::RobotState& state,
+                                           FrankaModelDataBus* dst) {
+    // ------------------------------------------------------------------------
+    // Dynamics: Mass matrix M(q)
+    // ------------------------------------------------------------------------
+    {
+        auto M = model_->mass(state);
+        std::copy(M.begin(), M.end(), &dst->mass[0][0]);
+    }
+    
+    // ------------------------------------------------------------------------
+    // Dynamics: Coriolis force vector c(q,dq)
+    // ------------------------------------------------------------------------
+    {
+        auto c = model_->coriolis(state);
+        std::copy(c.begin(), c.end(), dst->coriolis);
+    }
+    
+    // ------------------------------------------------------------------------
+    // Dynamics: Gravity vector g(q)
+    // ------------------------------------------------------------------------
+    {
+        auto g = model_->gravity(state);
+        std::copy(g.begin(), g.end(), dst->gravity);
+    }
+    
+    // ------------------------------------------------------------------------
+    // Kinematics: End effector Jacobian in base frame (zero Jacobian)
+    // ------------------------------------------------------------------------
+    {
+        auto J = model_->zeroJacobian(franka::Frame::kEndEffector, state);
+        std::copy(J.begin(), J.end(), &dst->jacobian[0][0]);
+    }
+    
+    // ------------------------------------------------------------------------
+    // Kinematics: End effector body Jacobian (in EE frame)
+    // ------------------------------------------------------------------------
+    {
+        auto J_body = model_->bodyJacobian(franka::Frame::kEndEffector, state);
+        std::copy(J_body.begin(), J_body.end(), &dst->jacobian_body[0][0]);
+    }
 }
