@@ -148,7 +148,8 @@
          * Output port layout:
          *   Port 0: Function-call (no data)
          *   Port 1: robot_state (FrankaRobotStateBus struct)
-         *   Port 2: dt_sec (double)
+         *   Port 2: model_data (FrankaModelDataBus struct)
+         *   Port 3: dt_sec (double)
          * 
          * Input port layout:
          *   Port 0: Enable
@@ -157,7 +158,8 @@
          */
         %assign bsMember = "%<::CompiledModel.Name>_B"
         %assign stateExpr = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
-        %assign dtExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
+        %assign modelExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
+        %assign dtExpr = "%<LibBlockOutputSignalAddr(3, "", "", 0)>"
         %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
 
         %if GenerateClassInterface
@@ -165,6 +167,7 @@
             %assign fromPrefix = "&%<bsMember>."
             %assign toPrefix = "&franka_controller_model.%<bsMember>."
             %assign stateExprCtrl = FEVAL("strrep", stateExpr, fromPrefix, toPrefix)
+            %assign modelExprCtrl = FEVAL("strrep", modelExpr, fromPrefix, toPrefix)
             %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
             %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
 
@@ -200,9 +203,12 @@
                 franka_controller_model.%<ctrlEnableFcn>();
             %endif
 
-            /* Set output pointers (robot state bus + dt_sec) */
+            /* Set output pointers (robot state + model data + dt_sec) */
             %<ctxName>.setStateOutputPointer(
                 reinterpret_cast<FrankaRobotStateBus*>(%<stateExprCtrl>)
+            );
+            %<ctxName>.setModelOutputPointer(
+                reinterpret_cast<FrankaModelDataBus*>(%<modelExprCtrl>)
             );
             %<ctxName>.setDtOutputPointer(%<dtExprCtrl>);
             
@@ -212,6 +218,9 @@
             /* In nonreusable function packaging, use generated block signals directly. */
             %<ctxName>.setStateOutputPointer(
                 reinterpret_cast<FrankaRobotStateBus*>(%<stateExpr>)
+            );
+            %<ctxName>.setModelOutputPointer(
+                reinterpret_cast<FrankaModelDataBus*>(%<modelExpr>)
             );
             %<ctxName>.setDtOutputPointer(%<dtExpr>);
             %<ctxName>.setInputPointers(%<tauExpr>);

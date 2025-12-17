@@ -137,4 +137,29 @@ enum FrankaRobotMode {
     FRANKA_ROBOT_MODE_AUTOMATIC_ERROR_RECOVERY = 6
 };
 
+/**
+ * @brief C struct matching FrankaModelDataBus Simulink bus
+ * 
+ * Contains computed dynamics and kinematics from libfranka Model class.
+ * These are derived quantities computed from the robot state each cycle.
+ * 
+ * IMPORTANT: Field order MUST match franka_model_data_bus.m exactly!
+ */
+struct FrankaModelDataBus {
+    // ========================================================================
+    // Dynamics
+    // ========================================================================
+    
+    double mass[7][7];      ///< Mass matrix M(q) [kg*m^2]
+    double coriolis[7];     ///< Coriolis force vector c(q,dq) [Nm]
+    double gravity[7];      ///< Gravity vector g(q) [Nm]
+    
+    // ========================================================================
+    // Jacobians (End Effector)
+    // ========================================================================
+    
+    double jacobian[6][7];       ///< EE Jacobian in base frame (zero Jacobian)
+    double jacobian_body[6][7];  ///< EE body Jacobian (in EE frame)
+};
+
 #endif // FRANKA_SIMULINK_TYPES_H
