@@ -62,6 +62,34 @@ void FrankaRobotContext::setInputPointers(const double* tau_J_d_ptr) {
     tau_J_d_in_ = tau_J_d_ptr;
 }
 
+void FrankaRobotContext::setControlMode(FrankaControlMode mode) {
+    control_mode_ = mode;
+}
+
+void FrankaRobotContext::setTorqueInputPointer(const double* tau_J_d_ptr) {
+    tau_J_d_in_ = tau_J_d_ptr;
+}
+
+void FrankaRobotContext::setJointPositionInputPointer(const double* q_d_ptr) {
+    q_d_in_ = q_d_ptr;
+}
+
+void FrankaRobotContext::setJointVelocityInputPointer(const double* dq_d_ptr) {
+    dq_d_in_ = dq_d_ptr;
+}
+
+void FrankaRobotContext::setCartesianPoseInputPointer(const double* O_T_EE_d_ptr, 
+                                                       const double* elbow_d_ptr) {
+    O_T_EE_d_in_ = O_T_EE_d_ptr;
+    elbow_d_in_ = elbow_d_ptr;
+}
+
+void FrankaRobotContext::setCartesianVelocityInputPointer(const double* O_dP_EE_d_ptr,
+                                                           const double* elbow_d_ptr) {
+    O_dP_EE_d_in_ = O_dP_EE_d_ptr;
+    elbow_d_in_ = elbow_d_ptr;
+}
+
 void FrankaRobotContext::shutdown() {
     if (running_) {
         requestStop();
@@ -104,14 +132,66 @@ bool FrankaRobotContext::isControlRunning() const {
 
 void FrankaRobotContext::controlThreadFunc() {
     try {
-        robot_->control(
-            [this](const franka::RobotState& state, franka::Duration period) 
-                -> franka::Torques {
-                return this->controlCallback(state, period);
-            },
-            /*limit_rate=*/true,
-            /*cutoff_frequency=*/100.0
-        );
+        switch (control_mode_) {
+            case FrankaControlMode::Torques:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::Torques {
+                        return this->torqueCallback(state, period);
+                    },
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            case FrankaControlMode::JointPositions:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::JointPositions {
+                        return this->jointPositionCallback(state, period);
+                    },
+                    franka::ControllerMode::kJointImpedance,
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            case FrankaControlMode::JointVelocities:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::JointVelocities {
+                        return this->jointVelocityCallback(state, period);
+                    },
+                    franka::ControllerMode::kJointImpedance,
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            case FrankaControlMode::CartesianPose:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::CartesianPose {
+                        return this->cartesianPoseCallback(state, period);
+                    },
+                    franka::ControllerMode::kCartesianImpedance,
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+                
+            case FrankaControlMode::CartesianVelocities:
+                robot_->control(
+                    [this](const franka::RobotState& state, franka::Duration period) 
+                        -> franka::CartesianVelocities {
+                        return this->cartesianVelocityCallback(state, period);
+                    },
+                    franka::ControllerMode::kCartesianImpedance,
+                    /*limit_rate=*/true,
+                    /*cutoff_frequency=*/100.0
+                );
+                break;
+        }
     } catch (const franka::Exception& e) {
         std::cerr << "Control exception: " << e.what() << std::endl;
     }
@@ -119,13 +199,17 @@ void FrankaRobotContext::controlThreadFunc() {
     running_ = false;
 }
 
-franka::Torques FrankaRobotContext::controlCallback(
+// ============================================================================
+// Common Pre-Callback Logic
+// ============================================================================
+
+bool FrankaRobotContext::executePreCallback(
     const franka::RobotState& state,
     franka::Duration period) {
     
     // Check for stop request
     if (stop_requested_) {
-        return franka::MotionFinished(franka::Torques({0, 0, 0, 0, 0, 0, 0}));
+        return false;
     }
     
     // ========================================================================
@@ -161,36 +245,152 @@ franka::Torques FrankaRobotContext::controlCallback(
         controller_callback_(controller_user_data_, dt_sec);
     }
     
-    // ========================================================================
-    // Step 3: Read computed torques from Simulink input
-    // ========================================================================
+    return true;
+}
+
+// Helper to check and sanitize array values (guard against NaN/Inf)
+template<size_t N>
+static void sanitizeArray(std::array<double, N>& arr, const char* name) {
+    bool ok = true;
+    for (double v : arr) {
+        if (!std::isfinite(v)) {
+            ok = false;
+            break;
+        }
+    }
+    if (!ok) {
+        static std::atomic<bool> warned{false};
+        if (!warned.exchange(true)) {
+            std::cerr << "FrankaRobotContext: non-finite " << name << " detected; "
+                         "zeroing values. Check Simulink signal wiring / controller execution."
+                      << std::endl;
+        }
+        arr.fill(0.0);
+    }
+}
+
+// ============================================================================
+// Mode-Specific Callbacks
+// ============================================================================
+
+franka::Torques FrankaRobotContext::torqueCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (!executePreCallback(state, period)) {
+        return franka::MotionFinished(franka::Torques({0, 0, 0, 0, 0, 0, 0}));
+    }
+    
+    // Read commanded torques from Simulink input
     std::array<double, 7> tau_cmd{};
     if (tau_J_d_in_) {
         std::copy(tau_J_d_in_, tau_J_d_in_ + 7, tau_cmd.begin());
     }
-
-    // Safety: guard against NaN/Inf torques (often indicates wiring/state issues)
-    // to avoid sending garbage to the robot.
-    {
-        bool ok = true;
-        for (double v : tau_cmd) {
-            if (!std::isfinite(v)) {
-                ok = false;
-                break;
-            }
-        }
-        if (!ok) {
-            static std::atomic<bool> warned{false};
-            if (!warned.exchange(true)) {
-                std::cerr << "FrankaRobotContext: non-finite tau_J_d detected; "
-                             "zeroing torques. Check Simulink signal wiring / controller execution."
-                          << std::endl;
-            }
-            tau_cmd.fill(0.0);
-        }
-    }
+    sanitizeArray(tau_cmd, "tau_J_d");
     
     return franka::Torques(tau_cmd);
+}
+
+franka::JointPositions FrankaRobotContext::jointPositionCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (!executePreCallback(state, period)) {
+        // Return current position on stop (smooth stop)
+        return franka::MotionFinished(franka::JointPositions(state.q_d));
+    }
+    
+    // Read commanded joint positions from Simulink input
+    std::array<double, 7> q_cmd{};
+    if (q_d_in_) {
+        std::copy(q_d_in_, q_d_in_ + 7, q_cmd.begin());
+    } else {
+        // Default to current commanded position if no input connected
+        q_cmd = state.q_d;
+    }
+    sanitizeArray(q_cmd, "q_d");
+    
+    return franka::JointPositions(q_cmd);
+}
+
+franka::JointVelocities FrankaRobotContext::jointVelocityCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (!executePreCallback(state, period)) {
+        // Return zero velocity on stop (smooth deceleration handled by robot)
+        return franka::MotionFinished(franka::JointVelocities({0, 0, 0, 0, 0, 0, 0}));
+    }
+    
+    // Read commanded joint velocities from Simulink input
+    std::array<double, 7> dq_cmd{};
+    if (dq_d_in_) {
+        std::copy(dq_d_in_, dq_d_in_ + 7, dq_cmd.begin());
+    }
+    sanitizeArray(dq_cmd, "dq_d");
+    
+    return franka::JointVelocities(dq_cmd);
+}
+
+franka::CartesianPose FrankaRobotContext::cartesianPoseCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (!executePreCallback(state, period)) {
+        // Return current pose on stop (smooth stop)
+        return franka::MotionFinished(franka::CartesianPose(state.O_T_EE_d, state.elbow_d));
+    }
+    
+    // Read commanded Cartesian pose from Simulink input (4x4 col-major)
+    std::array<double, 16> pose_cmd{};
+    if (O_T_EE_d_in_) {
+        std::copy(O_T_EE_d_in_, O_T_EE_d_in_ + 16, pose_cmd.begin());
+    } else {
+        // Default to current commanded pose if no input connected
+        pose_cmd = state.O_T_EE_d;
+    }
+    sanitizeArray(pose_cmd, "O_T_EE_d");
+    
+    // Read elbow configuration (required for Cartesian control)
+    std::array<double, 2> elbow_cmd{};
+    if (elbow_d_in_) {
+        std::copy(elbow_d_in_, elbow_d_in_ + 2, elbow_cmd.begin());
+    } else {
+        // Default to current elbow configuration
+        elbow_cmd = state.elbow_d;
+    }
+    sanitizeArray(elbow_cmd, "elbow_d");
+    
+    return franka::CartesianPose(pose_cmd, elbow_cmd);
+}
+
+franka::CartesianVelocities FrankaRobotContext::cartesianVelocityCallback(
+    const franka::RobotState& state,
+    franka::Duration period) {
+    
+    if (!executePreCallback(state, period)) {
+        // Return zero velocity on stop
+        return franka::MotionFinished(franka::CartesianVelocities({0, 0, 0, 0, 0, 0}, state.elbow_d));
+    }
+    
+    // Read commanded Cartesian velocity from Simulink input [vx, vy, vz, wx, wy, wz]
+    std::array<double, 6> vel_cmd{};
+    if (O_dP_EE_d_in_) {
+        std::copy(O_dP_EE_d_in_, O_dP_EE_d_in_ + 6, vel_cmd.begin());
+    }
+    sanitizeArray(vel_cmd, "O_dP_EE_d");
+    
+    // Read elbow configuration (required for Cartesian control)
+    std::array<double, 2> elbow_cmd{};
+    if (elbow_d_in_) {
+        std::copy(elbow_d_in_, elbow_d_in_ + 2, elbow_cmd.begin());
+    } else {
+        // Default to current elbow configuration
+        elbow_cmd = state.elbow_d;
+    }
+    sanitizeArray(elbow_cmd, "elbow_d");
+    
+    return franka::CartesianVelocities(vel_cmd, elbow_cmd);
 }
 
 // ============================================================================

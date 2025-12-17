@@ -2,7 +2,8 @@
 // Franka Robot API - Header
 //
 // This provides the interface between Simulink code generation and libfranka
-// for torque control with function-call subsystem pattern.
+// with support for multiple control modes (torque, joint position/velocity,
+// Cartesian pose/velocity).
 //
 // Key Architecture:
 //   The libfranka robot.control() callback directly invokes the Simulink-generated
@@ -23,6 +24,19 @@
 #include <franka/model.h>
 
 #include "franka_simulink_types.h"
+
+/**
+ * @brief Control mode enumeration
+ * 
+ * Matches the block mask dropdown order for mode selection.
+ */
+enum class FrankaControlMode {
+    Torques = 0,            ///< Direct torque control
+    JointPositions = 1,     ///< Joint position control with internal impedance
+    JointVelocities = 2,    ///< Joint velocity control with internal impedance
+    CartesianPose = 3,      ///< Cartesian pose control with internal impedance
+    CartesianVelocities = 4 ///< Cartesian velocity control with internal impedance
+};
 
 /**
  * @brief Type for the controller callback function
@@ -96,10 +110,50 @@ public:
     void setDtOutputPointer(double* dt_sec_ptr);
     
     /**
-     * @brief Set pointers to Simulink input signals
+     * @brief Set pointers to Simulink input signals (legacy torque-only interface)
      * @param tau_J_d_ptr Pointer to tau_J_d input [7]
+     * @deprecated Use mode-specific setters instead
      */
     void setInputPointers(const double* tau_J_d_ptr);
+    
+    /**
+     * @brief Set the control mode
+     * @param mode Control mode (Torques, JointPositions, JointVelocities, 
+     *                          CartesianPose, CartesianVelocities)
+     */
+    void setControlMode(FrankaControlMode mode);
+    
+    /**
+     * @brief Set torque command input pointer (mode: Torques)
+     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
+     */
+    void setTorqueInputPointer(const double* tau_J_d_ptr);
+    
+    /**
+     * @brief Set joint position command input pointer (mode: JointPositions)
+     * @param q_d_ptr Pointer to q_d input [7] (rad)
+     */
+    void setJointPositionInputPointer(const double* q_d_ptr);
+    
+    /**
+     * @brief Set joint velocity command input pointer (mode: JointVelocities)
+     * @param dq_d_ptr Pointer to dq_d input [7] (rad/s)
+     */
+    void setJointVelocityInputPointer(const double* dq_d_ptr);
+    
+    /**
+     * @brief Set Cartesian pose command input pointers (mode: CartesianPose)
+     * @param O_T_EE_d_ptr Pointer to O_T_EE_d input [16] (4x4 col-major, m)
+     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
+     */
+    void setCartesianPoseInputPointer(const double* O_T_EE_d_ptr, const double* elbow_d_ptr);
+    
+    /**
+     * @brief Set Cartesian velocity command input pointers (mode: CartesianVelocities)
+     * @param O_dP_EE_d_ptr Pointer to O_dP_EE_d input [6] (m/s, rad/s)
+     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
+     */
+    void setCartesianVelocityInputPointer(const double* O_dP_EE_d_ptr, const double* elbow_d_ptr);
     
     /**
      * @brief Shutdown and cleanup
@@ -128,13 +182,29 @@ public:
 private:
     void controlThreadFunc();
     
-    franka::Torques controlCallback(const franka::RobotState& state,
-                                     franka::Duration period);
+    // Mode-specific callbacks (return type determines control mode in libfranka)
+    franka::Torques torqueCallback(const franka::RobotState& state,
+                                    franka::Duration period);
+    franka::JointPositions jointPositionCallback(const franka::RobotState& state,
+                                                  franka::Duration period);
+    franka::JointVelocities jointVelocityCallback(const franka::RobotState& state,
+                                                   franka::Duration period);
+    franka::CartesianPose cartesianPoseCallback(const franka::RobotState& state,
+                                                 franka::Duration period);
+    franka::CartesianVelocities cartesianVelocityCallback(const franka::RobotState& state,
+                                                           franka::Duration period);
+    
+    // Common pre-callback logic (state copy, model compute, controller execute)
+    // Returns true if control should continue, false if stop requested
+    bool executePreCallback(const franka::RobotState& state, franka::Duration period);
     
     // Robot connection
     std::string robot_ip_;
     std::unique_ptr<franka::Robot> robot_;
     std::unique_ptr<franka::Model> model_;
+    
+    // Control mode
+    FrankaControlMode control_mode_{FrankaControlMode::Torques};
     
     // Control state
     std::atomic<bool> running_{false};
@@ -147,11 +217,18 @@ private:
     ControllerCallback controller_callback_{nullptr};
     void* controller_user_data_{nullptr};
     
-    // Pointers to Simulink I/O signals
+    // Pointers to Simulink output signals
     FrankaRobotStateBus* state_out_{nullptr};
     FrankaModelDataBus* model_out_{nullptr};
     double* dt_sec_out_{nullptr};
-    const double* tau_J_d_in_{nullptr};
+    
+    // Pointers to Simulink input signals (mode-specific)
+    const double* tau_J_d_in_{nullptr};      // Torques mode
+    const double* q_d_in_{nullptr};           // JointPositions mode
+    const double* dq_d_in_{nullptr};          // JointVelocities mode
+    const double* O_T_EE_d_in_{nullptr};      // CartesianPose mode
+    const double* O_dP_EE_d_in_{nullptr};     // CartesianVelocities mode
+    const double* elbow_d_in_{nullptr};       // Cartesian modes (elbow config)
     
     // Helper to copy franka::RobotState to FrankaRobotStateBus
     void copyRobotState(const franka::RobotState& src, FrankaRobotStateBus* dst);

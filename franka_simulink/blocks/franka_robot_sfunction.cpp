@@ -1,13 +1,28 @@
 /*
  * franka_robot_sfunction.cpp - C++ Level-2 S-Function for Franka robot control
  *
- * This block wraps libfranka's robot.control() with torque callback.
+ * This block wraps libfranka's robot.control() with multiple control mode support.
  * It outputs a function-call signal to trigger an external controller subsystem.
+ *
+ * Parameters:
+ *   control_mode - Control mode selection (0-4):
+ *     0: Torques           - Direct torque control
+ *     1: JointPositions    - Joint position control with internal impedance
+ *     2: JointVelocities   - Joint velocity control with internal impedance
+ *     3: CartesianPose     - Cartesian pose control with internal impedance
+ *     4: CartesianVelocities - Cartesian velocity control with internal impedance
  *
  * Inputs:
  *   0. Enable    (1x1)   - Rising edge starts control, falling edge stops
  *   1. robot_ip  (16x1)  - Robot IP as ASCII chars (use String Constant + String to ASCII)
- *   2. tau_J_d   (7x1)   - Commanded joint torques (read from controller subsystem)
+ *   2. command   (varies)- Mode-dependent command input:
+ *                          Mode 0: tau_J_d (7x1)    - Commanded joint torques [Nm]
+ *                          Mode 1: q_d (7x1)        - Commanded joint positions [rad]
+ *                          Mode 2: dq_d (7x1)       - Commanded joint velocities [rad/s]
+ *                          Mode 3: O_T_EE_d (16x1)  - Commanded EE pose (4x4 col-major) [m]
+ *                          Mode 4: O_dP_EE_d (6x1)  - Commanded EE velocity [m/s, rad/s]
+ *   3. elbow_d   (2x1)   - Elbow configuration (only for modes 3-4)
+ *                          [elbow_position, elbow_sign]
  *
  * Outputs:
  *   0. fcall       (function-call)       - Triggers controller at 1kHz [MUST BE FIRST]
@@ -36,14 +51,26 @@
 #include <string>
 #include <cstring>
 
-/* No parameters required - all inputs come from ports */
-#define NUM_PARAMS     0
+/* Parameters */
+#define NUM_PARAMS          1
+#define PARAM_CONTROL_MODE  0
+
+/* Control mode enum (matches block mask dropdown order) */
+enum FrankaControlMode {
+    CTRL_TORQUES = 0,
+    CTRL_JOINT_POSITIONS = 1,
+    CTRL_JOINT_VELOCITIES = 2,
+    CTRL_CARTESIAN_POSE = 3,
+    CTRL_CARTESIAN_VELOCITIES = 4
+};
 
 /* Input port indices */
 #define IN_ENABLE     0
 #define IN_ROBOT_IP   1
-#define IN_TAU_J_D    2
-#define NUM_INPUTS    3
+#define IN_COMMAND    2  /* Command input (tau_J_d, q_d, dq_d, O_T_EE_d, or O_dP_EE_d) */
+#define IN_ELBOW      3  /* Elbow input (only for Cartesian modes) */
+#define NUM_INPUTS_BASE    3  /* Modes 0-2: Enable, robot_ip, command */
+#define NUM_INPUTS_CART    4  /* Modes 3-4: Enable, robot_ip, command, elbow */
 
 /* Output port indices */
 #define OUT_FCALL       0   /* Function-call output - MUST BE FIRST */
@@ -56,14 +83,14 @@
 #define DWORK_PREV_ENABLE 0
 #define NUM_DWORK         1
 
-/* No parameters to check - all inputs come from ports */
+/* Parameter validation handled by Simulink parameter mismatch check */
 
 /* ========================================================================
  * mdlInitializeSizes - Initialize block sizes
  * ======================================================================== */
 static void mdlInitializeSizes(SimStruct *S)
 {
-    /* No parameters - all inputs come from ports */
+    /* One parameter: control_mode */
     ssSetNumSFcnParams(S, NUM_PARAMS);
     
 #if defined(MATLAB_MEX_FILE)
@@ -71,15 +98,25 @@ static void mdlInitializeSizes(SimStruct *S)
         return; /* Parameter mismatch reported by Simulink */
     }
 #endif
+
+    /* Parameter is not tunable at runtime */
+    ssSetSFcnParamTunable(S, PARAM_CONTROL_MODE, SS_PRM_NOT_TUNABLE);
+    
+    /* Read control mode parameter */
+    int control_mode = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_CONTROL_MODE)));
     
     /* States */
     ssSetNumContStates(S, 0);
     ssSetNumDiscStates(S, 0);
     
     /* ====================================================================
-     * INPUT PORTS
+     * INPUT PORTS - Dynamic sizing based on control mode
      * ==================================================================== */
-    if (!ssSetNumInputPorts(S, NUM_INPUTS)) return;
+    int num_inputs = (control_mode == CTRL_CARTESIAN_POSE || 
+                      control_mode == CTRL_CARTESIAN_VELOCITIES) 
+                     ? NUM_INPUTS_CART : NUM_INPUTS_BASE;
+    
+    if (!ssSetNumInputPorts(S, num_inputs)) return;
     
     /* Port 0: Enable (1x1) */
     ssSetInputPortWidth(S, IN_ENABLE, 1);
@@ -93,11 +130,28 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetInputPortDirectFeedThrough(S, IN_ROBOT_IP, 1);
     ssSetInputPortRequiredContiguous(S, IN_ROBOT_IP, 1);
     
-    /* Port 2: tau_J_d (7x1) */
-    ssSetInputPortWidth(S, IN_TAU_J_D, 7);
-    ssSetInputPortDataType(S, IN_TAU_J_D, SS_DOUBLE);
-    ssSetInputPortDirectFeedThrough(S, IN_TAU_J_D, 1);
-    ssSetInputPortRequiredContiguous(S, IN_TAU_J_D, 1);
+    /* Port 2: Command input (size depends on control mode) */
+    int command_size;
+    switch (control_mode) {
+        case CTRL_TORQUES:           command_size = 7;  break;  /* tau_J_d */
+        case CTRL_JOINT_POSITIONS:   command_size = 7;  break;  /* q_d */
+        case CTRL_JOINT_VELOCITIES:  command_size = 7;  break;  /* dq_d */
+        case CTRL_CARTESIAN_POSE:    command_size = 16; break;  /* O_T_EE_d (4x4) */
+        case CTRL_CARTESIAN_VELOCITIES: command_size = 6; break; /* O_dP_EE_d (6x1) */
+        default:                     command_size = 7;  break;  /* Default to torques */
+    }
+    ssSetInputPortWidth(S, IN_COMMAND, command_size);
+    ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
+    ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
+    ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
+    
+    /* Port 3: Elbow input (only for Cartesian modes) */
+    if (num_inputs == NUM_INPUTS_CART) {
+        ssSetInputPortWidth(S, IN_ELBOW, 2);  /* elbow_d: [position, sign] */
+        ssSetInputPortDataType(S, IN_ELBOW, SS_DOUBLE);
+        ssSetInputPortDirectFeedThrough(S, IN_ELBOW, 1);
+        ssSetInputPortRequiredContiguous(S, IN_ELBOW, 1);
+    }
     
     /* ====================================================================
      * OUTPUT PORTS
@@ -235,8 +289,13 @@ static void mdlTerminate(SimStruct *S)
 #define MDL_RTW
 static void mdlRTW(SimStruct *S)
 {
-    /* robot_ip comes from input port - no parameters to write */
-    UNUSED_ARG(S);
+    /* Write control_mode parameter to RTW file for TLC access */
+    int control_mode = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_CONTROL_MODE)));
+    
+    if (!ssWriteRTWParamSettings(S, 1,
+            SSWRITE_VALUE_NUM, "ControlMode", (real_T)control_mode)) {
+        return; /* Error message already set by ssWriteRTWParamSettings */
+    }
 }
 #endif
 

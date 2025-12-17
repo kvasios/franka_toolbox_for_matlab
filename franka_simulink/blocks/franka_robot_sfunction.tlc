@@ -4,7 +4,15 @@
 %%  This TLC generates code where the libfranka control callback
 %%  directly executes the function-call subsystem (user's controller).
 %%
+%%  Supports multiple control modes:
+%%    0: Torques           - Direct torque control
+%%    1: JointPositions    - Joint position with internal impedance
+%%    2: JointVelocities   - Joint velocity with internal impedance
+%%    3: CartesianPose     - Cartesian pose with internal impedance
+%%    4: CartesianVelocities - Cartesian velocity with internal impedance
+%%
 %%  robot_ip is provided via input port 1 (not as a parameter).
+%%  control_mode is provided via S-function parameter.
 %%
 %implements "franka_robot_sfunction" "C"
 
@@ -46,10 +54,17 @@
 %function Start(block, system) Output
 {
     %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    %% Read control mode from S-function parameter settings
+    %assign controlMode = CAST("Number", SFcnParamSettings.ControlMode)
+    
     /* Initialize Franka Robot Context
      * robot_ip comes from input port 1 as ASCII string (null-terminated)
      */
     %<ctxName>.initialize(reinterpret_cast<const char*>(%<LibBlockInputSignalAddr(1, "", "", 0)>));
+    
+    /* Set control mode: %<controlMode> */
+    %<ctxName>.setControlMode(static_cast<FrankaControlMode>(%<controlMode>));
 
     /* Resolve the function-call subsystem entry-point we should invoke from the
      * libfranka 1kHz callback.
@@ -151,16 +166,21 @@
          *   Port 2: model_data (FrankaModelDataBus struct)
          *   Port 3: dt_sec (double)
          * 
-         * Input port layout:
+         * Input port layout (mode-dependent):
          *   Port 0: Enable
          *   Port 1: robot_ip
-         *   Port 2: tau_J_d
+         *   Port 2: command (tau_J_d / q_d / dq_d / O_T_EE_d / O_dP_EE_d)
+         *   Port 3: elbow_d (only for Cartesian modes 3-4)
          */
         %assign bsMember = "%<::CompiledModel.Name>_B"
         %assign stateExpr = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
         %assign modelExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
         %assign dtExpr = "%<LibBlockOutputSignalAddr(3, "", "", 0)>"
-        %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
+        %assign cmdExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
+        %% Elbow input only exists for Cartesian modes (3 and 4)
+        %if controlMode == 3 || controlMode == 4
+            %assign elbowExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+        %endif
 
         %if GenerateClassInterface
             /* In class interface packaging, redirect I/O to the dedicated controller object. */
@@ -169,7 +189,10 @@
             %assign stateExprCtrl = FEVAL("strrep", stateExpr, fromPrefix, toPrefix)
             %assign modelExprCtrl = FEVAL("strrep", modelExpr, fromPrefix, toPrefix)
             %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
-            %assign tauExprCtrl = FEVAL("strrep", tauExpr, fromPrefix, toPrefix)
+            %assign cmdExprCtrl = FEVAL("strrep", cmdExpr, fromPrefix, toPrefix)
+            %if controlMode == 3 || controlMode == 4
+                %assign elbowExprCtrl = FEVAL("strrep", elbowExpr, fromPrefix, toPrefix)
+            %endif
 
             /* Initialize controller model state (atomic Controller subsystem). */
             %assign ctrlInitFcn = ""
@@ -212,8 +235,24 @@
             );
             %<ctxName>.setDtOutputPointer(%<dtExprCtrl>);
             
-            /* Set input pointers (tau_J_d) */
-            %<ctxName>.setInputPointers(%<tauExprCtrl>);
+            /* Set input pointers (mode-specific) */
+            %switch controlMode
+                %case 0  %% Torques
+                    %<ctxName>.setTorqueInputPointer(%<cmdExprCtrl>);
+                    %break
+                %case 1  %% JointPositions
+                    %<ctxName>.setJointPositionInputPointer(%<cmdExprCtrl>);
+                    %break
+                %case 2  %% JointVelocities
+                    %<ctxName>.setJointVelocityInputPointer(%<cmdExprCtrl>);
+                    %break
+                %case 3  %% CartesianPose
+                    %<ctxName>.setCartesianPoseInputPointer(%<cmdExprCtrl>, %<elbowExprCtrl>);
+                    %break
+                %case 4  %% CartesianVelocities
+                    %<ctxName>.setCartesianVelocityInputPointer(%<cmdExprCtrl>, %<elbowExprCtrl>);
+                    %break
+            %endswitch
         %else
             /* In nonreusable function packaging, use generated block signals directly. */
             %<ctxName>.setStateOutputPointer(
@@ -223,7 +262,25 @@
                 reinterpret_cast<FrankaModelDataBus*>(%<modelExpr>)
             );
             %<ctxName>.setDtOutputPointer(%<dtExpr>);
-            %<ctxName>.setInputPointers(%<tauExpr>);
+            
+            /* Set input pointers (mode-specific) */
+            %switch controlMode
+                %case 0  %% Torques
+                    %<ctxName>.setTorqueInputPointer(%<cmdExpr>);
+                    %break
+                %case 1  %% JointPositions
+                    %<ctxName>.setJointPositionInputPointer(%<cmdExpr>);
+                    %break
+                %case 2  %% JointVelocities
+                    %<ctxName>.setJointVelocityInputPointer(%<cmdExpr>);
+                    %break
+                %case 3  %% CartesianPose
+                    %<ctxName>.setCartesianPoseInputPointer(%<cmdExpr>, %<elbowExpr>);
+                    %break
+                %case 4  %% CartesianVelocities
+                    %<ctxName>.setCartesianVelocityInputPointer(%<cmdExpr>, %<elbowExpr>);
+                    %break
+            %endswitch
         %endif
     %endif
     
