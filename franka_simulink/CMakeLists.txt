@@ -26,3 +26,14 @@ matlab_add_mex(
      NAME franka_robot_sfunction
      SRC "blocks/franka_robot_sfunction.cpp"
 )
+
+# ============================================================================
+# Motion Generator S-Function (standalone, no external dependencies)
+# ============================================================================
+# Generic joint-space trajectory generator using synchronized polynomial profiles.
+# Works in Simulink simulation mode and code generation (fully inlined via TLC).
+#
+matlab_add_mex(
+     NAME motion_generator_sfunction
+     SRC "blocks/motion_generator_sfunction.cpp"
+)

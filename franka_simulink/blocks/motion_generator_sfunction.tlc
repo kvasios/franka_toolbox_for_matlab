@@ -1,0 +1,317 @@
+%%  Copyright (c) 2025 Franka Robotics GmbH
+%%  Motion Generator Block - Fully Inlined TLC Implementation
+%%
+%%  Generates smooth synchronized joint-space trajectories.
+%%  Completely standalone - no external dependencies.
+%%
+%%  Algorithm based on:
+%%    Wisama Khalil and Etienne Dombre. 2002. Modeling, Identification and
+%%    Control of Robots (Kogan Page Science Paper edition).
+%%
+%implements "motion_generator_sfunction" "C"
+
+%% ========================================================================
+%% BlockTypeSetup - Called once per block type
+%% ========================================================================
+%function BlockTypeSetup(block, system) void
+    %<LibAddToCommonIncludes("<cmath>")>
+%endfunction
+
+%% ========================================================================
+%% BlockInstanceSetup - Declare helper functions (once per model)
+%% ========================================================================
+%function BlockInstanceSetup(block, system) Output
+{
+    %% Only emit helper functions once per model
+    %if !ISFIELD(::CompiledModel, "MotionGenHelpersEmitted")
+        %assign ::CompiledModel.MotionGenHelpersEmitted = 1
+        
+        %openfile buffer
+        
+/* Motion Generator Constants */
+#define MOTION_GEN_NUM_JOINTS 7
+#define MOTION_GEN_DELTA_Q_FINISHED 1e-6
+
+static const double kMotionGenDqMax[MOTION_GEN_NUM_JOINTS] = {2.0, 2.0, 2.0, 2.0, 2.5, 2.5, 2.5};
+static const double kMotionGenDdqMaxStart[MOTION_GEN_NUM_JOINTS] = {5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0};
+static const double kMotionGenDdqMaxGoal[MOTION_GEN_NUM_JOINTS] = {5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0};
+
+/* Motion Generator State Structure */
+typedef struct {
+    double prev_enable;
+    double motion_active;
+    double time;
+    double q_start[MOTION_GEN_NUM_JOINTS];
+    double delta_q[MOTION_GEN_NUM_JOINTS];
+    double dq_max_sync[MOTION_GEN_NUM_JOINTS];
+    double t_1_sync[MOTION_GEN_NUM_JOINTS];
+    double t_2_sync[MOTION_GEN_NUM_JOINTS];
+    double t_f_sync[MOTION_GEN_NUM_JOINTS];
+    double q_1[MOTION_GEN_NUM_JOINTS];
+    double sign_delta_q[MOTION_GEN_NUM_JOINTS];
+} MotionGenState;
+
+/* Initialize motion generator state */
+static void motiongen_init(MotionGenState* state) {
+    state->prev_enable = 0.0;
+    state->motion_active = 0.0;
+    state->time = 0.0;
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        state->q_start[i] = 0.0;
+        state->delta_q[i] = 0.0;
+        state->dq_max_sync[i] = 0.0;
+        state->t_1_sync[i] = 0.0;
+        state->t_2_sync[i] = 0.0;
+        state->t_f_sync[i] = 0.0;
+        state->q_1[i] = 0.0;
+        state->sign_delta_q[i] = 0.0;
+    }
+}
+
+/* Calculate synchronized trajectory parameters */
+static void motiongen_calc_sync(
+    MotionGenState* state,
+    const double* q_start_in,
+    const double* q_goal_in,
+    double speed_factor)
+{
+    /* Clamp speed factor */
+    if (speed_factor <= 0.0) speed_factor = 0.01;
+    if (speed_factor > 1.0) speed_factor = 1.0;
+
+    /* Apply speed factor to limits */
+    double dq_max[MOTION_GEN_NUM_JOINTS];
+    double ddq_max_start[MOTION_GEN_NUM_JOINTS];
+    double ddq_max_goal[MOTION_GEN_NUM_JOINTS];
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        dq_max[i] = kMotionGenDqMax[i] * speed_factor;
+        ddq_max_start[i] = kMotionGenDdqMaxStart[i] * speed_factor;
+        ddq_max_goal[i] = kMotionGenDdqMaxGoal[i] * speed_factor;
+    }
+
+    /* Capture start and compute delta */
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        state->q_start[i] = q_start_in[i];
+        state->delta_q[i] = q_goal_in[i] - q_start_in[i];
+        
+        /* Compute sign */
+        if (state->delta_q[i] > 0.0) {
+            state->sign_delta_q[i] = 1.0;
+        } else if (state->delta_q[i] < 0.0) {
+            state->sign_delta_q[i] = -1.0;
+        } else {
+            state->sign_delta_q[i] = 0.0;
+        }
+    }
+
+    /* First pass: compute individual joint times */
+    double dq_max_reach[MOTION_GEN_NUM_JOINTS];
+    double t_f[MOTION_GEN_NUM_JOINTS];
+    double t_1[MOTION_GEN_NUM_JOINTS];
+    double delta_t_2[MOTION_GEN_NUM_JOINTS];
+
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        dq_max_reach[i] = dq_max[i];
+        t_f[i] = 0.0;
+        t_1[i] = 0.0;
+        delta_t_2[i] = 0.0;
+        state->dq_max_sync[i] = 0.0;
+        state->t_1_sync[i] = 0.0;
+        state->t_2_sync[i] = 0.0;
+        state->t_f_sync[i] = 0.0;
+        state->q_1[i] = 0.0;
+    }
+
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        double abs_delta = std::abs(state->delta_q[i]);
+        if (abs_delta > MOTION_GEN_DELTA_Q_FINISHED) {
+            double threshold = (3.0 / 4.0) * (dq_max[i] * dq_max[i] / ddq_max_start[i]) +
+                              (3.0 / 4.0) * (dq_max[i] * dq_max[i] / ddq_max_goal[i]);
+            
+            if (abs_delta < threshold) {
+                dq_max_reach[i] = std::sqrt(
+                    (4.0 / 3.0) * abs_delta *
+                    (ddq_max_start[i] * ddq_max_goal[i]) /
+                    (ddq_max_start[i] + ddq_max_goal[i]));
+            }
+            t_1[i] = 1.5 * dq_max_reach[i] / ddq_max_start[i];
+            delta_t_2[i] = 1.5 * dq_max_reach[i] / ddq_max_goal[i];
+            t_f[i] = t_1[i] / 2.0 + delta_t_2[i] / 2.0 + abs_delta / dq_max_reach[i];
+        }
+    }
+
+    /* Find maximum time */
+    double max_t_f = 0.0;
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        if (t_f[i] > max_t_f) max_t_f = t_f[i];
+    }
+
+    /* Second pass: synchronize all joints */
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        double abs_delta = std::abs(state->delta_q[i]);
+        if (abs_delta > MOTION_GEN_DELTA_Q_FINISHED) {
+            double a = 1.5 / 2.0 * (ddq_max_goal[i] + ddq_max_start[i]);
+            double b = -1.0 * max_t_f * ddq_max_goal[i] * ddq_max_start[i];
+            double c = abs_delta * ddq_max_goal[i] * ddq_max_start[i];
+            double disc = b * b - 4.0 * a * c;
+            if (disc < 0.0) disc = 0.0;
+            
+            state->dq_max_sync[i] = (-1.0 * b - std::sqrt(disc)) / (2.0 * a);
+            state->t_1_sync[i] = 1.5 * state->dq_max_sync[i] / ddq_max_start[i];
+            double delta_t_2_sync = 1.5 * state->dq_max_sync[i] / ddq_max_goal[i];
+            state->t_f_sync[i] = state->t_1_sync[i] / 2.0 + delta_t_2_sync / 2.0 +
+                                 std::abs(state->delta_q[i] / state->dq_max_sync[i]);
+            state->t_2_sync[i] = state->t_f_sync[i] - delta_t_2_sync;
+            state->q_1[i] = state->dq_max_sync[i] * state->sign_delta_q[i] * (0.5 * state->t_1_sync[i]);
+        }
+    }
+}
+
+/* Compute desired position at time t, returns true if finished */
+static bool motiongen_compute(
+    const MotionGenState* state,
+    double t,
+    double* q_d)
+{
+    bool all_finished = true;
+
+    for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+        double delta_q_d_i;
+        bool joint_finished = false;
+        double abs_delta = std::abs(state->delta_q[i]);
+
+        if (abs_delta < MOTION_GEN_DELTA_Q_FINISHED) {
+            delta_q_d_i = 0.0;
+            joint_finished = true;
+        } else {
+            double t_d = state->t_2_sync[i] - state->t_1_sync[i];
+            double delta_t_2_sync = state->t_f_sync[i] - state->t_2_sync[i];
+
+            if (t < state->t_1_sync[i]) {
+                /* Acceleration phase */
+                double t1_cubed = state->t_1_sync[i] * state->t_1_sync[i] * state->t_1_sync[i];
+                delta_q_d_i = -1.0 / t1_cubed * state->dq_max_sync[i] *
+                              state->sign_delta_q[i] * (0.5 * t - state->t_1_sync[i]) *
+                              t * t * t;
+            } else if (t < state->t_2_sync[i]) {
+                /* Constant velocity phase */
+                delta_q_d_i = state->q_1[i] + (t - state->t_1_sync[i]) *
+                              state->dq_max_sync[i] * state->sign_delta_q[i];
+            } else if (t < state->t_f_sync[i]) {
+                /* Deceleration phase */
+                double dt2_cubed = delta_t_2_sync * delta_t_2_sync * delta_t_2_sync;
+                double t_shifted = t - state->t_1_sync[i] - t_d;
+                delta_q_d_i = state->delta_q[i] + 0.5 *
+                    (1.0 / dt2_cubed * (t - state->t_1_sync[i] - 2.0 * delta_t_2_sync - t_d) *
+                     t_shifted * t_shifted * t_shifted +
+                     (2.0 * t - 2.0 * state->t_1_sync[i] - delta_t_2_sync - 2.0 * t_d)) *
+                    state->dq_max_sync[i] * state->sign_delta_q[i];
+            } else {
+                /* Motion complete */
+                delta_q_d_i = state->delta_q[i];
+                joint_finished = true;
+            }
+        }
+
+        q_d[i] = state->q_start[i] + delta_q_d_i;
+        if (!joint_finished) all_finished = false;
+    }
+
+    return all_finished;
+}
+
+        %closefile buffer
+        %<LibCacheGlobalPrmData(buffer)>
+    %endif
+    
+    %% Declare per-instance state variable
+    %assign stateVarName = "motiongen_state_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    %openfile buffer
+    
+/* Motion Generator State (block instance %<block.BlockIdx[0]>_%<block.BlockIdx[2]>) */
+static MotionGenState %<stateVarName>;
+
+    %closefile buffer
+    %<LibCacheGlobalPrmData(buffer)>
+}
+%endfunction
+
+%% ========================================================================
+%% Start - Initialize state
+%% ========================================================================
+%function Start(block, system) Output
+{
+    %assign stateVarName = "motiongen_state_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    /* Initialize Motion Generator State */
+    motiongen_init(&%<stateVarName>);
+}
+%endfunction
+
+%% ========================================================================
+%% Outputs - Compute trajectory output
+%% ========================================================================
+%function Outputs(block, system) Output
+{
+    %assign stateVarName = "motiongen_state_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    %% Get I/O signal addresses
+    %assign enableExpr = LibBlockInputSignal(0, "", "", 0)
+    %assign qStartAddr = LibBlockInputSignalAddr(1, "", "", 0)
+    %assign qGoalAddr = LibBlockInputSignalAddr(2, "", "", 0)
+    %assign speedFactorExpr = LibBlockInputSignal(3, "", "", 0)
+    %assign qDAddr = LibBlockOutputSignalAddr(0, "", "", 0)
+    %assign finishedAddr = LibBlockOutputSignalAddr(1, "", "", 0)
+    
+    %% Get sample time
+    %assign sampleTime = LibBlockSampleTime(block)
+    %if sampleTime <= 0.0
+        %assign sampleTime = 0.001
+    %endif
+    
+    /* Motion Generator Block */
+    {
+        MotionGenState* state = &%<stateVarName>;
+        double enable = %<enableExpr>;
+        const double* q_start_in = %<qStartAddr>;
+        const double* q_goal_in = %<qGoalAddr>;
+        double speed_factor = %<speedFactorExpr>;
+        double* q_d_out = %<qDAddr>;
+        double* motion_finished_out = %<finishedAddr>;
+        
+        /* Edge detection */
+        bool rising_edge = (enable > 0.5) && (state->prev_enable <= 0.5);
+        bool falling_edge = (enable <= 0.5) && (state->prev_enable > 0.5);
+        state->prev_enable = enable;
+        
+        /* Handle state transitions */
+        if (rising_edge) {
+            state->motion_active = 1.0;
+            state->time = 0.0;
+            motiongen_calc_sync(state, q_start_in, q_goal_in, speed_factor);
+        } else if (falling_edge) {
+            state->motion_active = 0.0;
+        }
+        
+        /* Compute output */
+        if (state->motion_active > 0.5) {
+            bool finished = motiongen_compute(state, state->time, q_d_out);
+            *motion_finished_out = finished ? 1.0 : 0.0;
+            state->time += %<sampleTime>;
+        } else {
+            for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
+                q_d_out[i] = state->q_start[i];
+            }
+            *motion_finished_out = 0.0;
+        }
+    }
+}
+%endfunction
+
+%% ========================================================================
+%% Terminate - Cleanup (nothing to do)
+%% ========================================================================
+%function Terminate(block, system) Output
+    /* Motion Generator: no cleanup required */
+%endfunction
