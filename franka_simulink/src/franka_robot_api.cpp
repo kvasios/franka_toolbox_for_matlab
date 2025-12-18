@@ -122,6 +122,129 @@ void FrankaRobotContext::setTorquesCartesianVelocityInputPointers(const double* 
     elbow_d_in_ = elbow_d_ptr;
 }
 
+void FrankaRobotContext::setSettingsInputPointer(const FrankaRobotSettingsBus* settings_ptr) {
+    settings_in_ = settings_ptr;
+}
+
+void FrankaRobotContext::applySettings() {
+    if (!robot_ || !settings_in_) {
+        return;
+    }
+    
+    try {
+        // ====================================================================
+        // Apply Collision Behavior
+        // ====================================================================
+        {
+            std::array<double, 7> lower_torque_accel, upper_torque_accel;
+            std::array<double, 7> lower_torque_nom, upper_torque_nom;
+            std::array<double, 6> lower_force_accel, upper_force_accel;
+            std::array<double, 6> lower_force_nom, upper_force_nom;
+            
+            std::copy(settings_in_->lower_torque_thresholds_acceleration,
+                      settings_in_->lower_torque_thresholds_acceleration + 7,
+                      lower_torque_accel.begin());
+            std::copy(settings_in_->upper_torque_thresholds_acceleration,
+                      settings_in_->upper_torque_thresholds_acceleration + 7,
+                      upper_torque_accel.begin());
+            std::copy(settings_in_->lower_torque_thresholds_nominal,
+                      settings_in_->lower_torque_thresholds_nominal + 7,
+                      lower_torque_nom.begin());
+            std::copy(settings_in_->upper_torque_thresholds_nominal,
+                      settings_in_->upper_torque_thresholds_nominal + 7,
+                      upper_torque_nom.begin());
+            
+            std::copy(settings_in_->lower_force_thresholds_acceleration,
+                      settings_in_->lower_force_thresholds_acceleration + 6,
+                      lower_force_accel.begin());
+            std::copy(settings_in_->upper_force_thresholds_acceleration,
+                      settings_in_->upper_force_thresholds_acceleration + 6,
+                      upper_force_accel.begin());
+            std::copy(settings_in_->lower_force_thresholds_nominal,
+                      settings_in_->lower_force_thresholds_nominal + 6,
+                      lower_force_nom.begin());
+            std::copy(settings_in_->upper_force_thresholds_nominal,
+                      settings_in_->upper_force_thresholds_nominal + 6,
+                      upper_force_nom.begin());
+            
+            robot_->setCollisionBehavior(
+                lower_torque_accel, upper_torque_accel,
+                lower_torque_nom, upper_torque_nom,
+                lower_force_accel, upper_force_accel,
+                lower_force_nom, upper_force_nom
+            );
+        }
+        
+        // ====================================================================
+        // Apply Joint Impedance
+        // ====================================================================
+        {
+            std::array<double, 7> K_theta;
+            std::copy(settings_in_->joint_impedance_stiffness,
+                      settings_in_->joint_impedance_stiffness + 7,
+                      K_theta.begin());
+            robot_->setJointImpedance(K_theta);
+        }
+        
+        // ====================================================================
+        // Apply Cartesian Impedance
+        // ====================================================================
+        {
+            std::array<double, 6> K_x;
+            std::copy(settings_in_->cartesian_impedance_stiffness,
+                      settings_in_->cartesian_impedance_stiffness + 6,
+                      K_x.begin());
+            robot_->setCartesianImpedance(K_x);
+        }
+        
+        // ====================================================================
+        // Apply End Effector Frame (NE_T_EE)
+        // ====================================================================
+        {
+            std::array<double, 16> NE_T_EE;
+            // Copy 4x4 matrix (column-major) to flat array
+            std::copy(&settings_in_->NE_T_EE[0][0],
+                      &settings_in_->NE_T_EE[0][0] + 16,
+                      NE_T_EE.begin());
+            robot_->setEE(NE_T_EE);
+        }
+        
+        // ====================================================================
+        // Apply Stiffness Frame (EE_T_K)
+        // ====================================================================
+        {
+            std::array<double, 16> EE_T_K;
+            std::copy(&settings_in_->EE_T_K[0][0],
+                      &settings_in_->EE_T_K[0][0] + 16,
+                      EE_T_K.begin());
+            robot_->setK(EE_T_K);
+        }
+        
+        // ====================================================================
+        // Apply External Load
+        // ====================================================================
+        {
+            double load_mass = settings_in_->load_mass;
+            std::array<double, 3> F_x_Cload;
+            std::array<double, 9> load_inertia;
+            
+            std::copy(settings_in_->load_center_of_mass,
+                      settings_in_->load_center_of_mass + 3,
+                      F_x_Cload.begin());
+            std::copy(&settings_in_->load_inertia_matrix[0][0],
+                      &settings_in_->load_inertia_matrix[0][0] + 9,
+                      load_inertia.begin());
+            
+            robot_->setLoad(load_mass, F_x_Cload, load_inertia);
+        }
+        
+        std::cout << "Robot settings applied successfully" << std::endl;
+        
+    } catch (const franka::Exception& e) {
+        std::cerr << "Failed to apply robot settings: " << e.what() << std::endl;
+    }
+}
+
 void FrankaRobotContext::shutdown() {
     if (running_) {
         requestStop();
@@ -144,6 +267,16 @@ void FrankaRobotContext::startControl() {
         return;
     }
     
+    // Join any previous control thread before starting a new one
+    // This handles the case of enable cycling: 1 -> 0 -> 1
+    if (control_thread_.joinable()) {
+        control_thread_.join();
+    }
+    
+    // Apply robot settings before starting control
+    // Settings are re-read on each enable, allowing runtime changes
+    applySettings();
+    
     stop_requested_ = false;
     running_ = true;
 
@@ -163,6 +296,16 @@ bool FrankaRobotContext::isControlRunning() const {
 // ============================================================================
 
 void FrankaRobotContext::controlThreadFunc() {
+    // Get rate limiter and cutoff frequency from settings
+    // Default to safe values if settings not provided
+    bool limit_rate = true;
+    double cutoff_frequency = 100.0;
+    
+    if (settings_in_) {
+        limit_rate = (settings_in_->rate_limiter > 0.5);
+        cutoff_frequency = settings_in_->cutoff_frequency;
+    }
+    
     try {
         switch (control_mode_) {
             // ================================================================
@@ -174,8 +317,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         -> franka::Torques {
                         return this->torqueCallback(state, period);
                     },
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -186,8 +329,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         return this->jointPositionCallback(state, period);
                     },
                     franka::ControllerMode::kJointImpedance,
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -198,8 +341,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         return this->jointVelocityCallback(state, period);
                     },
                     franka::ControllerMode::kJointImpedance,
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -210,8 +353,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         return this->cartesianPoseCallback(state, period);
                     },
                     franka::ControllerMode::kCartesianImpedance,
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -222,8 +365,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         return this->cartesianVelocityCallback(state, period);
                     },
                     franka::ControllerMode::kCartesianImpedance,
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -240,8 +383,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         -> franka::JointPositions {
                         return this->dualJointPositionMotionCallback(state, period);
                     },
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -255,8 +398,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         -> franka::JointVelocities {
                         return this->dualJointVelocityMotionCallback(state, period);
                     },
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -270,8 +413,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         -> franka::CartesianPose {
                         return this->dualCartesianPoseMotionCallback(state, period);
                     },
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
                 
@@ -285,8 +428,8 @@ void FrankaRobotContext::controlThreadFunc() {
                         -> franka::CartesianVelocities {
                         return this->dualCartesianVelocityMotionCallback(state, period);
                     },
-                    /*limit_rate=*/true,
-                    /*cutoff_frequency=*/100.0
+                    limit_rate,
+                    cutoff_frequency
                 );
                 break;
         }

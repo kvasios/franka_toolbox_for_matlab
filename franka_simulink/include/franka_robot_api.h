@@ -203,6 +203,29 @@ public:
                                                    const double* elbow_d_ptr);
     
     /**
+     * @brief Set pointer to robot settings input bus
+     * @param settings_ptr Pointer to FrankaRobotSettingsBus input
+     * 
+     * Settings are applied when startControl() is called (on enable rising edge).
+     */
+    void setSettingsInputPointer(const FrankaRobotSettingsBus* settings_ptr);
+    
+    /**
+     * @brief Apply robot settings from the settings bus
+     * 
+     * This is called internally by startControl() before entering the control loop.
+     * It configures:
+     *   - Collision behavior thresholds
+     *   - Joint impedance stiffness
+     *   - Cartesian impedance stiffness
+     *   - End effector frames (NE_T_EE, EE_T_K)
+     *   - External load inertia
+     * 
+     * Rate limiter and cutoff frequency are used when calling robot.control().
+     */
+    void applySettings();
+    
+    /**
      * @brief Shutdown and cleanup
      */
     void shutdown();
@@ -285,6 +308,9 @@ private:
     FrankaRobotStateBus* state_out_{nullptr};
     FrankaModelDataBus* model_out_{nullptr};
     double* dt_sec_out_{nullptr};
+    
+    // Pointer to Simulink input settings bus
+    const FrankaRobotSettingsBus* settings_in_{nullptr};
     
     // Pointers to Simulink input signals (mode-specific)
     const double* tau_J_d_in_{nullptr};      // Torques mode

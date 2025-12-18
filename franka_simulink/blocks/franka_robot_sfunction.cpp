@@ -23,24 +23,26 @@
  * Inputs (mode-dependent):
  *
  *   Single-callback modes (0-4):
- *     0. Enable    (1x1)   - Rising edge starts control, falling edge stops
- *     1. robot_ip  (16x1)  - Robot IP as ASCII chars
- *     2. command   (varies)- Mode 0: tau_J_d (7x1)   [Nm]
- *                           Mode 1: q_d (7x1)       [rad]
- *                           Mode 2: dq_d (7x1)      [rad/s]
- *                           Mode 3: O_T_EE_d (16x1) [m] (4x4 col-major)
- *                           Mode 4: O_dP_EE_d (6x1) [m/s, rad/s]
- *     3. elbow_d   (2x1)   - Elbow config (modes 3-4 only)
+ *     0. Enable    (1x1)                  - Rising edge starts control, falling edge stops
+ *     1. robot_ip  (16x1)                 - Robot IP as ASCII chars
+ *     2. settings  (FrankaRobotSettingsBus) - Robot settings (applied on enable)
+ *     3. command   (varies)               - Mode 0: tau_J_d (7x1)   [Nm]
+ *                                           Mode 1: q_d (7x1)       [rad]
+ *                                           Mode 2: dq_d (7x1)      [rad/s]
+ *                                           Mode 3: O_T_EE_d (16x1) [m] (4x4 col-major)
+ *                                           Mode 4: O_dP_EE_d (6x1) [m/s, rad/s]
+ *     4. elbow_d   (2x1)                  - Elbow config (modes 3-4 only)
  *
  *   Dual-callback modes (5-8):
- *     0. Enable     (1x1)   - Rising edge starts control
- *     1. robot_ip   (16x1)  - Robot IP as ASCII chars
- *     2. tau_J_d    (7x1)   - Commanded joint torques [Nm]
- *     3. motion_cmd (varies)- Mode 5: q_d (7x1)       [rad]
- *                            Mode 6: dq_d (7x1)      [rad/s]
- *                            Mode 7: O_T_EE_d (16x1) [m] (4x4 col-major)
- *                            Mode 8: O_dP_EE_d (6x1) [m/s, rad/s]
- *     4. elbow_d    (2x1)   - Elbow config (modes 7-8 only)
+ *     0. Enable     (1x1)                  - Rising edge starts control
+ *     1. robot_ip   (16x1)                 - Robot IP as ASCII chars
+ *     2. settings   (FrankaRobotSettingsBus) - Robot settings (applied on enable)
+ *     3. tau_J_d    (7x1)                  - Commanded joint torques [Nm]
+ *     4. motion_cmd (varies)               - Mode 5: q_d (7x1)       [rad]
+ *                                            Mode 6: dq_d (7x1)      [rad/s]
+ *                                            Mode 7: O_T_EE_d (16x1) [m] (4x4 col-major)
+ *                                            Mode 8: O_dP_EE_d (6x1) [m/s, rad/s]
+ *     5. elbow_d    (2x1)                  - Elbow config (modes 7-8 only)
  *
  * Outputs:
  *   0. fcall       (function-call)       - Triggers controller at 1kHz [MUST BE FIRST]
@@ -105,13 +107,14 @@ enum FrankaControlMode {
 /* Input port indices - vary by mode */
 #define IN_ENABLE     0
 #define IN_ROBOT_IP   1
+#define IN_SETTINGS   2  /* Robot settings bus (FrankaRobotSettingsBus) */
 /* Single-callback modes (0-4): */
-#define IN_COMMAND    2  /* Command input (tau_J_d, q_d, dq_d, O_T_EE_d, or O_dP_EE_d) */
-#define IN_ELBOW      3  /* Elbow input (only for Cartesian single modes 3-4) */
+#define IN_COMMAND    3  /* Command input (tau_J_d, q_d, dq_d, O_T_EE_d, or O_dP_EE_d) */
+#define IN_ELBOW      4  /* Elbow input (only for Cartesian single modes 3-4) */
 /* Dual-callback modes (5-8): */
-#define IN_TAU_J_D    2  /* Torque input for dual modes */
-#define IN_MOTION_CMD 3  /* Motion generator input for dual modes */
-#define IN_ELBOW_DUAL 4  /* Elbow input (only for Cartesian dual modes 7-8) */
+#define IN_TAU_J_D    3  /* Torque input for dual modes */
+#define IN_MOTION_CMD 4  /* Motion generator input for dual modes */
+#define IN_ELBOW_DUAL 5  /* Elbow input (only for Cartesian dual modes 7-8) */
 
 /* Output port indices */
 #define OUT_FCALL       0   /* Function-call output - MUST BE FIRST */
@@ -155,32 +158,32 @@ static void mdlInitializeSizes(SimStruct *S)
      * ==================================================================== */
     
     /* Determine number of input ports based on mode:
-     * - Modes 0-2 (single, joint-space): 3 ports
-     * - Modes 3-4 (single, Cartesian): 4 ports (includes elbow)
-     * - Modes 5-6 (dual, joint-space): 4 ports (tau + motion)
-     * - Modes 7-8 (dual, Cartesian): 5 ports (tau + motion + elbow)
+     * - Modes 0-2 (single, joint-space): 4 ports (Enable, robot_ip, settings, command)
+     * - Modes 3-4 (single, Cartesian): 5 ports (+ elbow)
+     * - Modes 5-6 (dual, joint-space): 5 ports (Enable, robot_ip, settings, tau, motion)
+     * - Modes 7-8 (dual, Cartesian): 6 ports (+ elbow)
      */
     int num_inputs;
     switch (control_mode) {
         case CTRL_TORQUES:
         case CTRL_JOINT_POSITIONS:
         case CTRL_JOINT_VELOCITIES:
-            num_inputs = 3;  /* Enable, robot_ip, command */
+            num_inputs = 4;  /* Enable, robot_ip, settings, command */
             break;
         case CTRL_CARTESIAN_POSE:
         case CTRL_CARTESIAN_VELOCITIES:
-            num_inputs = 4;  /* Enable, robot_ip, command, elbow */
+            num_inputs = 5;  /* Enable, robot_ip, settings, command, elbow */
             break;
         case CTRL_TORQUES_JOINT_POSITIONS:
         case CTRL_TORQUES_JOINT_VELOCITIES:
-            num_inputs = 4;  /* Enable, robot_ip, tau_J_d, motion_cmd */
+            num_inputs = 5;  /* Enable, robot_ip, settings, tau_J_d, motion_cmd */
             break;
         case CTRL_TORQUES_CARTESIAN_POSE:
         case CTRL_TORQUES_CARTESIAN_VELOCITIES:
-            num_inputs = 5;  /* Enable, robot_ip, tau_J_d, motion_cmd, elbow */
+            num_inputs = 6;  /* Enable, robot_ip, settings, tau_J_d, motion_cmd, elbow */
             break;
         default:
-            num_inputs = 3;
+            num_inputs = 4;
             break;
     }
     
@@ -197,6 +200,25 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetInputPortDataType(S, IN_ROBOT_IP, SS_UINT8);
     ssSetInputPortDirectFeedThrough(S, IN_ROBOT_IP, 1);
     ssSetInputPortRequiredContiguous(S, IN_ROBOT_IP, 1);
+    
+    /* Port 2: settings (FrankaRobotSettingsBus)
+     * 
+     * Bus input configuration:
+     * - The bus object 'FrankaRobotSettingsBus' must exist in base workspace
+     * - Register the bus as a data type and use it for the port
+     * - Input as nonvirtual bus (struct in generated code)
+     */
+#if defined(MATLAB_MEX_FILE)
+    {
+        DTypeId settingsBusTypeId;
+        ssRegisterTypeFromNamedObject(S, "FrankaRobotSettingsBus", &settingsBusTypeId);
+        ssSetInputPortDataType(S, IN_SETTINGS, settingsBusTypeId);
+    }
+#endif
+    ssSetInputPortWidth(S, IN_SETTINGS, 1);
+    ssSetBusInputAsStruct(S, IN_SETTINGS, 1);
+    ssSetInputPortDirectFeedThrough(S, IN_SETTINGS, 1);
+    ssSetInputPortRequiredContiguous(S, IN_SETTINGS, 1);
     
     /* Configure remaining ports based on mode */
     switch (control_mode) {

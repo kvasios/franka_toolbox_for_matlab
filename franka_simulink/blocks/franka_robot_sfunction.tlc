@@ -178,33 +178,38 @@
          *   Single modes (0-4):
          *     Port 0: Enable
          *     Port 1: robot_ip
-         *     Port 2: command (tau_J_d / q_d / dq_d / O_T_EE_d / O_dP_EE_d)
-         *     Port 3: elbow_d (only for Cartesian modes 3-4)
+         *     Port 2: settings (FrankaRobotSettingsBus)
+         *     Port 3: command (tau_J_d / q_d / dq_d / O_T_EE_d / O_dP_EE_d)
+         *     Port 4: elbow_d (only for Cartesian modes 3-4)
          *   Dual modes (5-8):
          *     Port 0: Enable
          *     Port 1: robot_ip
-         *     Port 2: tau_J_d
-         *     Port 3: motion_cmd (q_d / dq_d / O_T_EE_d / O_dP_EE_d)
-         *     Port 4: elbow_d (only for Cartesian modes 7-8)
+         *     Port 2: settings (FrankaRobotSettingsBus)
+         *     Port 3: tau_J_d
+         *     Port 4: motion_cmd (q_d / dq_d / O_T_EE_d / O_dP_EE_d)
+         *     Port 5: elbow_d (only for Cartesian modes 7-8)
          */
         %assign bsMember = "%<::CompiledModel.Name>_B"
         %assign stateExpr = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
         %assign modelExpr = "%<LibBlockOutputSignalAddr(2, "", "", 0)>"
         %assign dtExpr = "%<LibBlockOutputSignalAddr(3, "", "", 0)>"
         
+        %% Settings bus is always at port 2
+        %assign settingsExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
+        
         %% Assign input expressions based on mode
         %if controlMode <= 4
-            %% Single-callback modes: Port 2 = command
-            %assign cmdExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
+            %% Single-callback modes: Port 3 = command
+            %assign cmdExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
             %if controlMode == 3 || controlMode == 4
-                %assign elbowExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+                %assign elbowExpr = "%<LibBlockInputSignalAddr(4, "", "", 0)>"
             %endif
         %else
-            %% Dual-callback modes: Port 2 = tau_J_d, Port 3 = motion_cmd
-            %assign tauExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
-            %assign motionExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+            %% Dual-callback modes: Port 3 = tau_J_d, Port 4 = motion_cmd
+            %assign tauExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+            %assign motionExpr = "%<LibBlockInputSignalAddr(4, "", "", 0)>"
             %if controlMode == 7 || controlMode == 8
-                %assign elbowExpr = "%<LibBlockInputSignalAddr(4, "", "", 0)>"
+                %assign elbowExpr = "%<LibBlockInputSignalAddr(5, "", "", 0)>"
             %endif
         %endif
 
@@ -215,6 +220,7 @@
             %assign stateExprCtrl = FEVAL("strrep", stateExpr, fromPrefix, toPrefix)
             %assign modelExprCtrl = FEVAL("strrep", modelExpr, fromPrefix, toPrefix)
             %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
+            %assign settingsExprCtrl = FEVAL("strrep", settingsExpr, fromPrefix, toPrefix)
             %if controlMode <= 4
                 %assign cmdExprCtrl = FEVAL("strrep", cmdExpr, fromPrefix, toPrefix)
                 %if controlMode == 3 || controlMode == 4
@@ -269,6 +275,11 @@
             );
             %<ctxName>.setDtOutputPointer(%<dtExprCtrl>);
             
+            /* Set settings input pointer (applied on enable rising edge) */
+            %<ctxName>.setSettingsInputPointer(
+                reinterpret_cast<const FrankaRobotSettingsBus*>(%<settingsExprCtrl>)
+            );
+            
             /* Set input pointers (mode-specific) */
             %switch controlMode
                 %% Single-callback modes (0-4)
@@ -310,6 +321,11 @@
                 reinterpret_cast<FrankaModelDataBus*>(%<modelExpr>)
             );
             %<ctxName>.setDtOutputPointer(%<dtExpr>);
+            
+            /* Set settings input pointer (applied on enable rising edge) */
+            %<ctxName>.setSettingsInputPointer(
+                reinterpret_cast<const FrankaRobotSettingsBus*>(%<settingsExpr>)
+            );
             
             /* Set input pointers (mode-specific) */
             %switch controlMode

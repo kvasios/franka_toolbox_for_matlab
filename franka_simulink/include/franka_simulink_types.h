@@ -162,4 +162,61 @@ struct FrankaModelDataBus {
     double jacobian_body[6][7];  ///< EE body Jacobian (in EE frame)
 };
 
+/**
+ * @brief C struct matching FrankaRobotSettingsBus Simulink bus
+ * 
+ * Contains all configurable robot settings that are applied when
+ * the Enable input transitions from 0 to 1.
+ * 
+ * IMPORTANT: Field order MUST match franka_robot_settings_bus.m exactly!
+ */
+struct FrankaRobotSettingsBus {
+    // ========================================================================
+    // Control Parameters
+    // ========================================================================
+    
+    double rate_limiter;         ///< Enable rate limiting (0=false, 1=true)
+    double cutoff_frequency;     ///< Low-pass filter cutoff frequency [Hz]
+    
+    // ========================================================================
+    // Impedance Settings
+    // ========================================================================
+    
+    double joint_impedance_stiffness[7];     ///< Joint stiffness [Nm/rad]
+    double cartesian_impedance_stiffness[6]; ///< Cartesian stiffness [N/m, Nm/rad]
+    
+    // ========================================================================
+    // End Effector Frame Configuration (4x4 transforms, column-major)
+    // ========================================================================
+    
+    double NE_T_EE[4][4];   ///< Nominal EE to EE transformation
+    double EE_T_K[4][4];    ///< EE to stiffness frame transformation
+    
+    // ========================================================================
+    // Collision Thresholds - Torque (7 joints)
+    // ========================================================================
+    
+    double lower_torque_thresholds_acceleration[7]; ///< Lower torque threshold during accel [Nm]
+    double upper_torque_thresholds_acceleration[7]; ///< Upper torque threshold during accel [Nm]
+    double lower_torque_thresholds_nominal[7];      ///< Lower torque threshold nominal [Nm]
+    double upper_torque_thresholds_nominal[7];      ///< Upper torque threshold nominal [Nm]
+    
+    // ========================================================================
+    // Collision Thresholds - Force (6 Cartesian DOF)
+    // ========================================================================
+    
+    double lower_force_thresholds_acceleration[6]; ///< Lower force threshold during accel [N]
+    double upper_force_thresholds_acceleration[6]; ///< Upper force threshold during accel [N]
+    double lower_force_thresholds_nominal[6];      ///< Lower force threshold nominal [N]
+    double upper_force_thresholds_nominal[6];      ///< Upper force threshold nominal [N]
+    
+    // ========================================================================
+    // Load Inertia Parameters
+    // ========================================================================
+    
+    double load_mass;                  ///< External load mass [kg]
+    double load_center_of_mass[3];     ///< Load center of mass in flange frame [m]
+    double load_inertia_matrix[3][3];  ///< Load rotational inertia [kg*m^2]
+};
+
 #endif // FRANKA_SIMULINK_TYPES_H
