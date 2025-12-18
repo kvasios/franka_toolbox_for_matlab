@@ -11,24 +11,20 @@
 %implements "motion_generator_sfunction" "C"
 
 %% ========================================================================
-%% BlockTypeSetup - Called once per block type
+%% BlockTypeSetup - Called once per block type (emit helper functions)
 %% ========================================================================
 %function BlockTypeSetup(block, system) void
     %<LibAddToCommonIncludes("<cmath>")>
-%endfunction
+    
+    %% Emit helper functions and types once per model
+    %openfile buffer
+    
+/* ========================================================================
+ * Motion Generator - Helper Functions and Types
+ * ======================================================================== */
+#ifndef MOTION_GEN_HELPERS_DEFINED
+#define MOTION_GEN_HELPERS_DEFINED
 
-%% ========================================================================
-%% BlockInstanceSetup - Declare helper functions (once per model)
-%% ========================================================================
-%function BlockInstanceSetup(block, system) Output
-{
-    %% Only emit helper functions once per model
-    %if !ISFIELD(::CompiledModel, "MotionGenHelpersEmitted")
-        %assign ::CompiledModel.MotionGenHelpersEmitted = 1
-        
-        %openfile buffer
-        
-/* Motion Generator Constants */
 #define MOTION_GEN_NUM_JOINTS 7
 #define MOTION_GEN_DELTA_Q_FINISHED 1e-6
 
@@ -220,12 +216,19 @@ static bool motiongen_compute(
     return all_finished;
 }
 
-        %closefile buffer
-        %<LibCacheGlobalPrmData(buffer)>
-    %endif
-    
-    %% Declare per-instance state variable
-    %assign stateVarName = "motiongen_state_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+#endif /* MOTION_GEN_HELPERS_DEFINED */
+
+    %closefile buffer
+    %<LibCacheTypedefs(buffer)>
+%endfunction
+
+%% ========================================================================
+%% BlockInstanceSetup - Declare per-instance state variable
+%% ========================================================================
+%function BlockInstanceSetup(block, system) void
+    %assign idx0 = FEVAL("num2str", block.BlockIdx[0])
+    %assign idx2 = FEVAL("num2str", block.BlockIdx[2])
+    %assign stateVarName = "motiongen_state_" + idx0 + "_" + idx2
     
     %openfile buffer
     
@@ -234,29 +237,29 @@ static MotionGenState %<stateVarName>;
 
     %closefile buffer
     %<LibCacheGlobalPrmData(buffer)>
-}
 %endfunction
 
 %% ========================================================================
 %% Start - Initialize state
 %% ========================================================================
 %function Start(block, system) Output
-{
-    %assign stateVarName = "motiongen_state_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    %assign idx0 = FEVAL("num2str", block.BlockIdx[0])
+    %assign idx2 = FEVAL("num2str", block.BlockIdx[2])
+    %assign stateVarName = "motiongen_state_" + idx0 + "_" + idx2
     
     /* Initialize Motion Generator State */
     motiongen_init(&%<stateVarName>);
-}
 %endfunction
 
 %% ========================================================================
 %% Outputs - Compute trajectory output
 %% ========================================================================
 %function Outputs(block, system) Output
-{
-    %assign stateVarName = "motiongen_state_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    %assign idx0 = FEVAL("num2str", block.BlockIdx[0])
+    %assign idx2 = FEVAL("num2str", block.BlockIdx[2])
+    %assign stateVarName = "motiongen_state_" + idx0 + "_" + idx2
     
-    %% Get I/O signal addresses
+    %% Get I/O signal expressions
     %assign enableExpr = LibBlockInputSignal(0, "", "", 0)
     %assign qStartAddr = LibBlockInputSignalAddr(1, "", "", 0)
     %assign qGoalAddr = LibBlockInputSignalAddr(2, "", "", 0)
@@ -273,16 +276,16 @@ static MotionGenState %<stateVarName>;
     /* Motion Generator Block */
     {
         MotionGenState* state = &%<stateVarName>;
-        double enable = %<enableExpr>;
+        const double enable = %<enableExpr>;
         const double* q_start_in = %<qStartAddr>;
         const double* q_goal_in = %<qGoalAddr>;
-        double speed_factor = %<speedFactorExpr>;
+        const double speed_factor = %<speedFactorExpr>;
         double* q_d_out = %<qDAddr>;
         double* motion_finished_out = %<finishedAddr>;
         
         /* Edge detection */
-        bool rising_edge = (enable > 0.5) && (state->prev_enable <= 0.5);
-        bool falling_edge = (enable <= 0.5) && (state->prev_enable > 0.5);
+        const bool rising_edge = (enable > 0.5) && (state->prev_enable <= 0.5);
+        const bool falling_edge = (enable <= 0.5) && (state->prev_enable > 0.5);
         state->prev_enable = enable;
         
         /* Handle state transitions */
@@ -296,7 +299,7 @@ static MotionGenState %<stateVarName>;
         
         /* Compute output */
         if (state->motion_active > 0.5) {
-            bool finished = motiongen_compute(state, state->time, q_d_out);
+            const bool finished = motiongen_compute(state, state->time, q_d_out);
             *motion_finished_out = finished ? 1.0 : 0.0;
             state->time += %<sampleTime>;
         } else {
@@ -306,7 +309,6 @@ static MotionGenState %<stateVarName>;
             *motion_finished_out = 0.0;
         }
     }
-}
 %endfunction
 
 %% ========================================================================
