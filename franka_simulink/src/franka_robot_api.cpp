@@ -39,6 +39,65 @@ static void sanitizeArray(std::array<double, N>& arr, const char* name) {
 }
 
 // ============================================================================
+// Helper: Validate 4x4 Homogeneous Transformation Matrix
+// ============================================================================
+// 
+// libfranka expects the transformation matrix to be:
+//   - Column-major: [R11 R21 R31 0 | R12 R22 R32 0 | R13 R23 R33 0 | tx ty tz 1]
+//   - Valid rotation matrix: orthonormal, determinant ≈ 1
+//   - Homogeneous row: [0, 0, 0, 1]
+//
+// Returns true if the matrix is valid; false if it's invalid (zeros, NaN, etc.)
+//
+static bool isValidTransformationMatrix(const std::array<double, 16>& T) {
+    // Check for non-finite values
+    for (double v : T) {
+        if (!std::isfinite(v)) {
+            return false;
+        }
+    }
+    
+    // Check homogeneous row: indices 3, 7, 11 should be 0; index 15 should be 1
+    // Column-major layout: T[col*4 + row]
+    //   Row 3 (homogeneous): T[3], T[7], T[11], T[15]
+    const double eps = 1e-6;
+    if (std::abs(T[3]) > eps || std::abs(T[7]) > eps || std::abs(T[11]) > eps) {
+        return false;
+    }
+    if (std::abs(T[15] - 1.0) > eps) {
+        return false;
+    }
+    
+    // Extract rotation matrix columns (column-major)
+    // Column 0: T[0], T[1], T[2]
+    // Column 1: T[4], T[5], T[6]
+    // Column 2: T[8], T[9], T[10]
+    double r00 = T[0], r10 = T[1], r20 = T[2];
+    double r01 = T[4], r11 = T[5], r21 = T[6];
+    double r02 = T[8], r12 = T[9], r22 = T[10];
+    
+    // Check if rotation columns have non-zero length (not all zeros)
+    double col0_len_sq = r00*r00 + r10*r10 + r20*r20;
+    double col1_len_sq = r01*r01 + r11*r11 + r21*r21;
+    double col2_len_sq = r02*r02 + r12*r12 + r22*r22;
+    
+    if (col0_len_sq < 0.5 || col1_len_sq < 0.5 || col2_len_sq < 0.5) {
+        // Columns are too short - likely zeros or invalid
+        return false;
+    }
+    
+    // Optional: Check orthonormality (det ≈ 1)
+    // For performance, we just check column lengths are close to 1
+    if (std::abs(col0_len_sq - 1.0) > 0.1 ||
+        std::abs(col1_len_sq - 1.0) > 0.1 ||
+        std::abs(col2_len_sq - 1.0) > 0.1) {
+        return false;
+    }
+    
+    return true;
+}
+
+// ============================================================================
 // FrankaRobotInstance - Implementation
 // ============================================================================
 
@@ -943,7 +1002,17 @@ franka::CartesianPose FrankaRobotContext::cartesianPoseCallback(
     } else {
         pose_cmd = state.O_T_EE_d;
     }
-    sanitizeArray(pose_cmd, "O_T_EE_d");
+    
+    // Validate transformation matrix - if invalid, use robot's current desired pose
+    if (!isValidTransformationMatrix(pose_cmd)) {
+        static std::atomic<bool> warned{false};
+        if (!warned.exchange(true)) {
+            std::cerr << "FrankaRobotAPI: Invalid O_T_EE_d transformation matrix detected "
+                         "(likely zero-initialized). Using robot's current O_T_EE_d."
+                      << std::endl;
+        }
+        pose_cmd = state.O_T_EE_d;
+    }
     
     std::array<double, 2> elbow_cmd{};
     if (elbow_d_in_) {
