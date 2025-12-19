@@ -45,10 +45,9 @@
     
     /* Franka Robot Context (per block instance).
      *
-     * IMPORTANT:
-     * Do NOT use a single global context for the whole model, because multiple
-     * Franka Robot block instances would then overwrite each other's callback,
-     * I/O pointers, and control thread state — causing very erratic behavior.
+     * Each block gets its own FrankaRobotContext to manage I/O pointers and
+     * callbacks. Multiple contexts targeting the same robot IP share the
+     * underlying connection via FrankaRobotManager (singleton registry).
      */
     %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
     FrankaRobotContext %<ctxName>;
@@ -185,19 +184,19 @@
          *   Port 3: dt_sec (double)
          * 
          * Input port layout (mode-dependent):
+         *   Common (all modes):
+         *     Port 0: Enable
+         *     Port 1: robot_ip
+         *     Port 2: settings (FrankaRobotSettingsBus)
+         *     Port 3: error_recovery (trigger)
+         *     Port 4: read_once (trigger)
          *   Single modes (0-4):
-         *     Port 0: Enable
-         *     Port 1: robot_ip
-         *     Port 2: settings (FrankaRobotSettingsBus)
-         *     Port 3: command (tau_J_d / q_d / dq_d / O_T_EE_d / O_dP_EE_d)
-         *     Port 4: elbow_d (only for Cartesian modes 3-4)
+         *     Port 5: command (tau_J_d / q_d / dq_d / O_T_EE_d / O_dP_EE_d)
+         *     Port 6: elbow_d (only for Cartesian modes 3-4)
          *   Dual modes (5-8):
-         *     Port 0: Enable
-         *     Port 1: robot_ip
-         *     Port 2: settings (FrankaRobotSettingsBus)
-         *     Port 3: tau_J_d
-         *     Port 4: motion_cmd (q_d / dq_d / O_T_EE_d / O_dP_EE_d)
-         *     Port 5: elbow_d (only for Cartesian modes 7-8)
+         *     Port 5: tau_J_d
+         *     Port 6: motion_cmd (q_d / dq_d / O_T_EE_d / O_dP_EE_d)
+         *     Port 7: elbow_d (only for Cartesian modes 7-8)
          */
         %assign bsMember = "%<::CompiledModel.Name>_B"
         %assign stateExpr = "%<LibBlockOutputSignalAddr(1, "", "", 0)>"
@@ -207,19 +206,19 @@
         %% Settings bus is always at port 2
         %assign settingsExpr = "%<LibBlockInputSignalAddr(2, "", "", 0)>"
         
-        %% Assign input expressions based on mode
+        %% Assign input expressions based on mode (ports shifted by 2 for error_recovery/read_once)
         %if controlMode <= 4
-            %% Single-callback modes: Port 3 = command
-            %assign cmdExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
+            %% Single-callback modes: Port 5 = command
+            %assign cmdExpr = "%<LibBlockInputSignalAddr(5, "", "", 0)>"
             %if controlMode == 3 || controlMode == 4
-                %assign elbowExpr = "%<LibBlockInputSignalAddr(4, "", "", 0)>"
+                %assign elbowExpr = "%<LibBlockInputSignalAddr(6, "", "", 0)>"
             %endif
         %else
-            %% Dual-callback modes: Port 3 = tau_J_d, Port 4 = motion_cmd
-            %assign tauExpr = "%<LibBlockInputSignalAddr(3, "", "", 0)>"
-            %assign motionExpr = "%<LibBlockInputSignalAddr(4, "", "", 0)>"
+            %% Dual-callback modes: Port 5 = tau_J_d, Port 6 = motion_cmd
+            %assign tauExpr = "%<LibBlockInputSignalAddr(5, "", "", 0)>"
+            %assign motionExpr = "%<LibBlockInputSignalAddr(6, "", "", 0)>"
             %if controlMode == 7 || controlMode == 8
-                %assign elbowExpr = "%<LibBlockInputSignalAddr(5, "", "", 0)>"
+                %assign elbowExpr = "%<LibBlockInputSignalAddr(7, "", "", 0)>"
             %endif
         %endif
 
@@ -372,8 +371,10 @@
         %endif
     %endif
     
-    /* Initialize DWork state (for enable edge detection in main model). */
+    /* Initialize DWork state (for edge detection in main model). */
     %<LibBlockDWork(PrevEnable, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevErrorRecovery, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevReadOnce, "", "", 0)> = 0.0;
 }
 %endfunction
 
@@ -386,58 +387,136 @@
     %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
     /* Franka Robot Block */
     
-    /* Get enable input */
+    /* Get inputs */
     real_T enable = %<LibBlockInputSignal(0, "", "", 0)>;
+    real_T error_recovery = %<LibBlockInputSignal(3, "", "", 0)>;
+    real_T read_once = %<LibBlockInputSignal(4, "", "", 0)>;
+    
+    /* Get previous values */
     real_T prev_enable = %<LibBlockDWork(PrevEnable, "", "", 0)>;
+    real_T prev_error_recovery = %<LibBlockDWork(PrevErrorRecovery, "", "", 0)>;
+    real_T prev_read_once = %<LibBlockDWork(PrevReadOnce, "", "", 0)>;
     
     /* Edge detection */
-    bool rising_edge = (enable > 0.5) && (prev_enable <= 0.5);
-    bool falling_edge = (enable <= 0.5) && (prev_enable > 0.5);
+    bool enable_rising = (enable > 0.5) && (prev_enable <= 0.5);
+    bool enable_falling = (enable <= 0.5) && (prev_enable > 0.5);
+    bool error_recovery_rising = (error_recovery > 0.5) && (prev_error_recovery <= 0.5);
+    bool read_once_rising = (read_once > 0.5) && (prev_read_once <= 0.5);
     
-    /* Update previous enable */
-    %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
+    /* Update previous values for error_recovery and read_once (unconditional) */
+    %<LibBlockDWork(PrevErrorRecovery, "", "", 0)> = error_recovery;
+    %<LibBlockDWork(PrevReadOnce, "", "", 0)> = read_once;
     
-    /* Handle state transitions */
-    if (rising_edge && !%<ctxName>.isControlRunning()) {
-        /* Lazy robot connection on rising edge (robust w/ tunable strings). */
-        if (!%<ctxName>.isInitialized()) {
-            const uint8_T* robot_ip_u8 = reinterpret_cast<const uint8_T*>(
-                %<LibBlockInputSignalAddr(1, "", "", 0)>
-            );
-            char robot_ip_buf[17];
-            std::memcpy(robot_ip_buf, robot_ip_u8, 16);
-            robot_ip_buf[16] = '\0';
+    /* Helper: Extract robot IP from input port */
+    auto extractRobotIP = [&]() -> std::string {
+        const uint8_T* robot_ip_u8 = reinterpret_cast<const uint8_T*>(
+            %<LibBlockInputSignalAddr(1, "", "", 0)>
+        );
+        char robot_ip_buf[17];
+        std::memcpy(robot_ip_buf, robot_ip_u8, 16);
+        robot_ip_buf[16] = '\0';
 
-            /* Trim trailing whitespace (common with tunable string conversions). */
-            int ip_len = 0;
-            while (ip_len < 16 && robot_ip_buf[ip_len] != '\0') {
-                ++ip_len;
-            }
-            while (ip_len > 0 &&
-                   (robot_ip_buf[ip_len - 1] == ' ' ||
-                    robot_ip_buf[ip_len - 1] == '\t' ||
-                    robot_ip_buf[ip_len - 1] == '\r' ||
-                    robot_ip_buf[ip_len - 1] == '\n')) {
-                robot_ip_buf[ip_len - 1] = '\0';
-                --ip_len;
-            }
-
-            try {
-                %<ctxName>.initialize(std::string(robot_ip_buf));
-            } catch (const franka::Exception& e) {
-                /* Keep the model alive; just don't start control. */
-                std::cerr << "FrankaRobotContext: failed to connect (robot_ip='"
-                          << robot_ip_buf << "'): " << e.what() << std::endl;
-                return;
-            }
+        /* Trim trailing whitespace (common with tunable string conversions). */
+        int ip_len = 0;
+        while (ip_len < 16 && robot_ip_buf[ip_len] != '\0') {
+            ++ip_len;
         }
-
-        /* Start control loop on rising edge */
-        %<ctxName>.startControl();
+        while (ip_len > 0 &&
+               (robot_ip_buf[ip_len - 1] == ' ' ||
+                robot_ip_buf[ip_len - 1] == '\t' ||
+                robot_ip_buf[ip_len - 1] == '\r' ||
+                robot_ip_buf[ip_len - 1] == '\n')) {
+            robot_ip_buf[ip_len - 1] = '\0';
+            --ip_len;
+        }
+        return std::string(robot_ip_buf);
+    };
+    
+    /* Helper: Ensure context is initialized */
+    auto ensureInitialized = [&]() -> bool {
+        if (%<ctxName>.isInitialized()) {
+            return true;
+        }
+        try {
+            %<ctxName>.initialize(extractRobotIP());
+            return true;
+        } catch (const franka::Exception& e) {
+            std::cerr << "FrankaRobotContext: failed to connect: " << e.what() << std::endl;
+            return false;
+        }
+    };
+    
+    /* ====================================================================
+     * Handle error_recovery trigger (only when NOT in control)
+     * ==================================================================== */
+    if (error_recovery_rising && !%<ctxName>.isControlRunning()) {
+        if (ensureInitialized()) {
+            /* Use the manager API for error recovery (operates on shared instance) */
+            std::string ip = extractRobotIP();
+            FrankaRobotManager::automaticErrorRecovery(ip);
+            
+            /* Also update state outputs so user can see the result */
+            FrankaRobotManager::readOnce(ip,
+                reinterpret_cast<FrankaRobotStateBus*>(%<LibBlockOutputSignalAddr(1, "", "", 0)>),
+                reinterpret_cast<FrankaModelDataBus*>(%<LibBlockOutputSignalAddr(2, "", "", 0)>));
+        }
     }
-    else if (falling_edge && %<ctxName>.isControlRunning()) {
+    
+    /* ====================================================================
+     * Handle read_once trigger (only when NOT in control)
+     * ==================================================================== */
+    if (read_once_rising && !%<ctxName>.isControlRunning()) {
+        if (ensureInitialized()) {
+            /* Use the manager API for readOnce (operates on shared instance) */
+            std::string ip = extractRobotIP();
+            FrankaRobotManager::readOnce(ip,
+                reinterpret_cast<FrankaRobotStateBus*>(%<LibBlockOutputSignalAddr(1, "", "", 0)>),
+                reinterpret_cast<FrankaModelDataBus*>(%<LibBlockOutputSignalAddr(2, "", "", 0)>));
+        }
+    }
+    
+    /* ====================================================================
+     * Handle enable state transitions
+     * 
+     * IMPORTANT: For cascaded control with multiple blocks targeting the
+     * same robot, we need to handle the case where:
+     *   1. Block A is running control
+     *   2. Block B's enable goes high (rising edge)
+     *   3. Block B tries to start but fails (robot busy)
+     *   4. Block A finishes
+     *   5. Block B should now start
+     * 
+     * To support this, we:
+     *   - Check if enable is high AND this context is not running
+     *   - Check if the shared robot instance is available via manager
+     *   - Only consume the rising edge (update prev_enable) when we
+     *     successfully start OR when control is already running
+     * ==================================================================== */
+    if ((enable > 0.5) && !%<ctxName>.isControlRunning()) {
+        if (ensureInitialized()) {
+            /* Check if the shared robot instance is available (not controlled by another context) */
+            std::string ip = extractRobotIP();
+            if (!FrankaRobotManager::isControlRunning(ip)) {
+                /* Robot is available - start control */
+                %<ctxName>.startControl();
+                /* Mark that we've handled the enable (consume rising edge) */
+                %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
+            }
+            /* else: Robot is busy (another context has control).
+             * Do NOT update prev_enable so we retry on next step. */
+        } else {
+            /* Failed to initialize - update prev_enable to avoid spamming connection attempts */
+            %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
+        }
+    }
+    else if (enable_falling && %<ctxName>.isControlRunning()) {
         /* Request stop on falling edge (graceful) */
         %<ctxName>.requestStop();
+        %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
+    }
+    else {
+        /* Normal case: not starting or stopping, just track enable state */
+        %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
     }
 }
 %endfunction

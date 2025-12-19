@@ -48,13 +48,6 @@ FrankaRobotInstance::FrankaRobotInstance(const std::string& ip)
     try {
         robot_ = std::make_unique<franka::Robot>(ip_);
         
-        // Attempt automatic error recovery on connect
-        try {
-            robot_->automaticErrorRecovery();
-        } catch (const franka::Exception&) {
-            // Robot might already be in good state
-        }
-        
         model_ = std::make_unique<franka::Model>(robot_->loadModel());
         
         std::cout << "FrankaRobotInstance: Connected to robot at " << ip_ << std::endl;

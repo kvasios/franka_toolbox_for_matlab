@@ -22,27 +22,28 @@
  *
  * Inputs (mode-dependent):
  *
+ *   Common inputs (all modes):
+ *     0. Enable         (1x1)                  - Rising edge starts control, falling edge stops
+ *     1. robot_ip       (16x1)                 - Robot IP as ASCII chars
+ *     2. settings       (FrankaRobotSettingsBus) - Robot settings (applied on enable)
+ *     3. error_recovery (1x1)                  - Rising edge triggers automatic error recovery
+ *     4. read_once      (1x1)                  - Rising edge reads robot state (when not in control)
+ *
  *   Single-callback modes (0-4):
- *     0. Enable    (1x1)                  - Rising edge starts control, falling edge stops
- *     1. robot_ip  (16x1)                 - Robot IP as ASCII chars
- *     2. settings  (FrankaRobotSettingsBus) - Robot settings (applied on enable)
- *     3. command   (varies)               - Mode 0: tau_J_d (7x1)   [Nm]
+ *     5. command   (varies)               - Mode 0: tau_J_d (7x1)   [Nm]
  *                                           Mode 1: q_d (7x1)       [rad]
  *                                           Mode 2: dq_d (7x1)      [rad/s]
  *                                           Mode 3: O_T_EE_d (16x1) [m] (4x4 col-major)
  *                                           Mode 4: O_dP_EE_d (6x1) [m/s, rad/s]
- *     4. elbow_d   (2x1)                  - Elbow config (modes 3-4 only)
+ *     6. elbow_d   (2x1)                  - Elbow config (modes 3-4 only)
  *
  *   Dual-callback modes (5-8):
- *     0. Enable     (1x1)                  - Rising edge starts control
- *     1. robot_ip   (16x1)                 - Robot IP as ASCII chars
- *     2. settings   (FrankaRobotSettingsBus) - Robot settings (applied on enable)
- *     3. tau_J_d    (7x1)                  - Commanded joint torques [Nm]
- *     4. motion_cmd (varies)               - Mode 5: q_d (7x1)       [rad]
+ *     5. tau_J_d    (7x1)                  - Commanded joint torques [Nm]
+ *     6. motion_cmd (varies)               - Mode 5: q_d (7x1)       [rad]
  *                                            Mode 6: dq_d (7x1)      [rad/s]
  *                                            Mode 7: O_T_EE_d (16x1) [m] (4x4 col-major)
  *                                            Mode 8: O_dP_EE_d (6x1) [m/s, rad/s]
- *     5. elbow_d    (2x1)                  - Elbow config (modes 7-8 only)
+ *     7. elbow_d    (2x1)                  - Elbow config (modes 7-8 only)
  *
  * Outputs:
  *   0. fcall       (function-call)       - Triggers controller at 1kHz [MUST BE FIRST]
@@ -105,16 +106,18 @@ enum FrankaControlMode {
 };
 
 /* Input port indices - vary by mode */
-#define IN_ENABLE     0
-#define IN_ROBOT_IP   1
-#define IN_SETTINGS   2  /* Robot settings bus (FrankaRobotSettingsBus) */
+#define IN_ENABLE           0
+#define IN_ROBOT_IP         1
+#define IN_SETTINGS         2  /* Robot settings bus (FrankaRobotSettingsBus) */
+#define IN_ERROR_RECOVERY   3  /* Trigger: automatic error recovery (1x1) */
+#define IN_READ_ONCE        4  /* Trigger: read robot state once (1x1) */
 /* Single-callback modes (0-4): */
-#define IN_COMMAND    3  /* Command input (tau_J_d, q_d, dq_d, O_T_EE_d, or O_dP_EE_d) */
-#define IN_ELBOW      4  /* Elbow input (only for Cartesian single modes 3-4) */
+#define IN_COMMAND          5  /* Command input (tau_J_d, q_d, dq_d, O_T_EE_d, or O_dP_EE_d) */
+#define IN_ELBOW            6  /* Elbow input (only for Cartesian single modes 3-4) */
 /* Dual-callback modes (5-8): */
-#define IN_TAU_J_D    3  /* Torque input for dual modes */
-#define IN_MOTION_CMD 4  /* Motion generator input for dual modes */
-#define IN_ELBOW_DUAL 5  /* Elbow input (only for Cartesian dual modes 7-8) */
+#define IN_TAU_J_D          5  /* Torque input for dual modes */
+#define IN_MOTION_CMD       6  /* Motion generator input for dual modes */
+#define IN_ELBOW_DUAL       7  /* Elbow input (only for Cartesian dual modes 7-8) */
 
 /* Output port indices */
 #define OUT_FCALL       0   /* Function-call output - MUST BE FIRST */
@@ -124,8 +127,10 @@ enum FrankaControlMode {
 #define NUM_OUTPUTS     4
 
 /* DWork indices */
-#define DWORK_PREV_ENABLE 0
-#define NUM_DWORK         1
+#define DWORK_PREV_ENABLE           0
+#define DWORK_PREV_ERROR_RECOVERY   1
+#define DWORK_PREV_READ_ONCE        2
+#define NUM_DWORK                   3
 
 /* Parameter validation handled by Simulink parameter mismatch check */
 
@@ -158,32 +163,33 @@ static void mdlInitializeSizes(SimStruct *S)
      * ==================================================================== */
     
     /* Determine number of input ports based on mode:
-     * - Modes 0-2 (single, joint-space): 4 ports (Enable, robot_ip, settings, command)
-     * - Modes 3-4 (single, Cartesian): 5 ports (+ elbow)
-     * - Modes 5-6 (dual, joint-space): 5 ports (Enable, robot_ip, settings, tau, motion)
-     * - Modes 7-8 (dual, Cartesian): 6 ports (+ elbow)
+     * Base ports (all modes): Enable, robot_ip, settings, error_recovery, read_once = 5
+     * - Modes 0-2 (single, joint-space): +1 (command) = 6 ports
+     * - Modes 3-4 (single, Cartesian): +2 (command, elbow) = 7 ports
+     * - Modes 5-6 (dual, joint-space): +2 (tau, motion) = 7 ports
+     * - Modes 7-8 (dual, Cartesian): +3 (tau, motion, elbow) = 8 ports
      */
     int num_inputs;
     switch (control_mode) {
         case CTRL_TORQUES:
         case CTRL_JOINT_POSITIONS:
         case CTRL_JOINT_VELOCITIES:
-            num_inputs = 4;  /* Enable, robot_ip, settings, command */
+            num_inputs = 6;  /* Enable, robot_ip, settings, error_recovery, read_once, command */
             break;
         case CTRL_CARTESIAN_POSE:
         case CTRL_CARTESIAN_VELOCITIES:
-            num_inputs = 5;  /* Enable, robot_ip, settings, command, elbow */
+            num_inputs = 7;  /* + elbow */
             break;
         case CTRL_TORQUES_JOINT_POSITIONS:
         case CTRL_TORQUES_JOINT_VELOCITIES:
-            num_inputs = 5;  /* Enable, robot_ip, settings, tau_J_d, motion_cmd */
+            num_inputs = 7;  /* Enable, robot_ip, settings, error_recovery, read_once, tau_J_d, motion_cmd */
             break;
         case CTRL_TORQUES_CARTESIAN_POSE:
         case CTRL_TORQUES_CARTESIAN_VELOCITIES:
-            num_inputs = 6;  /* Enable, robot_ip, settings, tau_J_d, motion_cmd, elbow */
+            num_inputs = 8;  /* + elbow */
             break;
         default:
-            num_inputs = 4;
+            num_inputs = 6;
             break;
     }
     
@@ -219,6 +225,22 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetBusInputAsStruct(S, IN_SETTINGS, 1);
     ssSetInputPortDirectFeedThrough(S, IN_SETTINGS, 1);
     ssSetInputPortRequiredContiguous(S, IN_SETTINGS, 1);
+    
+    /* Port 3: error_recovery trigger (1x1)
+     * Rising edge triggers automatic error recovery (only when not in control)
+     */
+    ssSetInputPortWidth(S, IN_ERROR_RECOVERY, 1);
+    ssSetInputPortDataType(S, IN_ERROR_RECOVERY, SS_DOUBLE);
+    ssSetInputPortDirectFeedThrough(S, IN_ERROR_RECOVERY, 1);
+    ssSetInputPortRequiredContiguous(S, IN_ERROR_RECOVERY, 1);
+    
+    /* Port 4: read_once trigger (1x1)
+     * Rising edge reads robot state once (only when not in control)
+     */
+    ssSetInputPortWidth(S, IN_READ_ONCE, 1);
+    ssSetInputPortDataType(S, IN_READ_ONCE, SS_DOUBLE);
+    ssSetInputPortDirectFeedThrough(S, IN_READ_ONCE, 1);
+    ssSetInputPortRequiredContiguous(S, IN_READ_ONCE, 1);
     
     /* Configure remaining ports based on mode */
     switch (control_mode) {
@@ -421,6 +443,14 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetDWorkDataType(S, DWORK_PREV_ENABLE, SS_DOUBLE);
     ssSetDWorkName(S, DWORK_PREV_ENABLE, "PrevEnable");
     
+    ssSetDWorkWidth(S, DWORK_PREV_ERROR_RECOVERY, 1);
+    ssSetDWorkDataType(S, DWORK_PREV_ERROR_RECOVERY, SS_DOUBLE);
+    ssSetDWorkName(S, DWORK_PREV_ERROR_RECOVERY, "PrevErrorRecovery");
+    
+    ssSetDWorkWidth(S, DWORK_PREV_READ_ONCE, 1);
+    ssSetDWorkDataType(S, DWORK_PREV_READ_ONCE, SS_DOUBLE);
+    ssSetDWorkName(S, DWORK_PREV_READ_ONCE, "PrevReadOnce");
+    
     /* Options */
     ssSetSimStateCompliance(S, USE_DEFAULT_SIM_STATE);
     ssSetOptions(S, SS_OPTION_CALL_TERMINATE_ON_EXIT);
@@ -449,6 +479,12 @@ static void mdlStart(SimStruct *S)
     /* Initialize DWork */
     real_T *prevEnable = (real_T*)ssGetDWork(S, DWORK_PREV_ENABLE);
     *prevEnable = 0.0;
+    
+    real_T *prevErrorRecovery = (real_T*)ssGetDWork(S, DWORK_PREV_ERROR_RECOVERY);
+    *prevErrorRecovery = 0.0;
+    
+    real_T *prevReadOnce = (real_T*)ssGetDWork(S, DWORK_PREV_READ_ONCE);
+    *prevReadOnce = 0.0;
 }
 #endif
 
