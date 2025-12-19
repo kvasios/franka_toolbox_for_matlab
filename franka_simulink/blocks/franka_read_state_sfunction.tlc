@@ -1,0 +1,85 @@
+%%  Copyright (c) 2025 Franka Robotics GmbH
+%%  Franka Read State Block - TLC Implementation
+%%
+%%  Reads robot state once from the robot at the specified IP.
+%%  Only works when no control is running.
+%%
+%implements "franka_read_state_sfunction" "C"
+
+%% ========================================================================
+%% BlockTypeSetup - Called once per block type
+%% ========================================================================
+%function BlockTypeSetup(block, system) void
+    %<LibAddToCommonIncludes("franka_robot_api.h")>
+    %<LibAddToCommonIncludes("franka_simulink_types.h")>
+    %<LibAddToCommonIncludes("<cstring>")>
+    %<LibAddToCommonIncludes("<string>")>
+%endfunction
+
+%% ========================================================================
+%% Start - Initialize DWork
+%% ========================================================================
+%function Start(block, system) Output
+{
+    /* Initialize trigger edge detection */
+    %<LibBlockDWork(PrevTrigger, "", "", 0)> = 0.0;
+}
+%endfunction
+
+%% ========================================================================
+%% Outputs - Handle state read on rising edge
+%% ========================================================================
+%function Outputs(block, system) Output
+{
+    /* Franka Read State Block */
+    
+    /* Get trigger input */
+    real_T trigger = %<LibBlockInputSignal(1, "", "", 0)>;
+    real_T prev_trigger = %<LibBlockDWork(PrevTrigger, "", "", 0)>;
+    
+    /* Output pointers */
+    FrankaRobotStateBus* state_out = reinterpret_cast<FrankaRobotStateBus*>(
+        %<LibBlockOutputSignalAddr(0, "", "", 0)>
+    );
+    FrankaModelDataBus* model_out = reinterpret_cast<FrankaModelDataBus*>(
+        %<LibBlockOutputSignalAddr(1, "", "", 0)>
+    );
+    real_T* success = %<LibBlockOutputSignalAddr(2, "", "", 0)>;
+    
+    /* Edge detection */
+    bool rising_edge = (trigger > 0.5) && (prev_trigger <= 0.5);
+    
+    /* Update previous trigger */
+    %<LibBlockDWork(PrevTrigger, "", "", 0)> = trigger;
+    
+    /* Default: no read attempted (keep previous values) */
+    *success = 0.0;
+    
+    if (rising_edge) {
+        /* Extract robot IP from input */
+        const uint8_T* robot_ip_u8 = reinterpret_cast<const uint8_T*>(
+            %<LibBlockInputSignalAddr(0, "", "", 0)>
+        );
+        char robot_ip_buf[17];
+        std::memcpy(robot_ip_buf, robot_ip_u8, 16);
+        robot_ip_buf[16] = '\0';
+        
+        /* Read state via manager */
+        bool ok = FrankaRobotManager::readOnce(
+            std::string(robot_ip_buf), 
+            state_out, 
+            model_out
+        );
+        *success = ok ? 1.0 : 0.0;
+    }
+}
+%endfunction
+
+%% ========================================================================
+%% Terminate - Nothing to clean up
+%% ========================================================================
+%function Terminate(block, system) Output
+{
+    /* No cleanup needed */
+}
+%endfunction

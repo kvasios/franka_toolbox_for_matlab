@@ -37,3 +37,28 @@ matlab_add_mex(
      NAME motion_generator_sfunction
      SRC "blocks/motion_generator_sfunction.cpp"
 )
+
+# ============================================================================
+# Auxiliary S-Functions (standalone, no external dependencies)
+# ============================================================================
+# These blocks work via FrankaRobotManager in generated code.
+# In simulation mode they just output default values (no robot connection).
+#
+
+# Stop Robot Block - sends stop request to robot by IP
+matlab_add_mex(
+     NAME franka_stop_sfunction
+     SRC "blocks/franka_stop_sfunction.cpp"
+)
+
+# Error Recovery Block - attempts automatic error recovery by IP
+matlab_add_mex(
+     NAME franka_error_recovery_sfunction
+     SRC "blocks/franka_error_recovery_sfunction.cpp"
+)
+
+# Read State Block - reads robot state once by IP
+matlab_add_mex(
+     NAME franka_read_state_sfunction
+     SRC "blocks/franka_read_state_sfunction.cpp"
+)

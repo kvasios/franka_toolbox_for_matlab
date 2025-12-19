@@ -448,7 +448,15 @@
 %function Terminate(block, system) Output
 {
     %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
-    /* Shutdown Franka control */
+    
+    /* Shutdown this context's control thread */
     %<ctxName>.shutdown();
+    
+    /* Cleanup shared robot instances via manager.
+     * This is idempotent - safe to call from multiple blocks.
+     * First call stops all robots and clears the registry.
+     * Subsequent calls are no-ops (registry already empty).
+     */
+    FrankaRobotManager::shutdownAll();
 }
 %endfunction

@@ -2,13 +2,18 @@
 // Franka Robot API - Header
 //
 // This provides the interface between Simulink code generation and libfranka
-// with support for multiple control modes (torque, joint position/velocity,
-// Cartesian pose/velocity).
+// with support for multiple control modes and shared robot connections.
 //
-// Key Architecture:
-//   The libfranka robot.control() callback directly invokes the Simulink-generated
-//   controller function via a function pointer. No thread synchronization needed -
-//   the controller code runs IN the 1kHz control thread.
+// Architecture:
+//   FrankaRobotManager    - Global singleton registry (IP → Instance)
+//   FrankaRobotInstance   - Shared robot connection (one per physical robot)
+//   FrankaRobotContext    - Per-block lightweight context (I/O pointers, callbacks)
+//
+// Key Features:
+//   - Multiple blocks can target the same robot IP (sequential control handoff)
+//   - Auxiliary blocks (stop, errorRecovery, readOnce) work by IP lookup
+//   - Single connection per robot, shared across all blocks
+//   - Thread-safe control ownership with atomic flags
 
 #ifndef FRANKA_ROBOT_API_H
 #define FRANKA_ROBOT_API_H
@@ -16,14 +21,20 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 #include <franka/exception.h>
 #include <franka/robot.h>
 #include <franka/model.h>
 
 #include "franka_simulink_types.h"
+
+// Forward declarations
+class FrankaRobotInstance;
+class FrankaRobotContext;
 
 /**
  * @brief Control mode enumeration
@@ -55,19 +66,264 @@ enum class FrankaControlMode {
  */
 using ControllerCallback = void (*)(void* user_data, double dt_sec);
 
+// ============================================================================
+// FrankaRobotInstance - Shared Robot Connection (one per physical robot)
+// ============================================================================
+
 /**
- * @brief Context class for Franka robot control
+ * @brief Shared robot instance representing a single physical robot connection.
  * 
- * Execution model:
- *   1. startControl() spawns a thread that calls robot.control()
- *   2. Inside robot.control() callback (at 1kHz):
- *      a. Copy robot state to Simulink output signal pointers (q, dq)
- *      b. Call the controller callback (executes user's Simulink controller)
- *      c. Read torques from Simulink input signal pointer (tau_J_d)
- *      d. Return torques to libfranka
- *   3. requestStop() gracefully terminates the control loop
+ * This class owns the franka::Robot and franka::Model objects and manages
+ * control ownership among multiple FrankaRobotContext instances that may
+ * target the same robot (same IP).
  * 
- * The controller callback runs IN the control thread context - no sync needed.
+ * Lifecycle:
+ *   - Created by FrankaRobotManager::getOrCreate(ip)
+ *   - Shared by all blocks targeting the same IP
+ *   - Destroyed when FrankaRobotManager shuts down
+ * 
+ * Control Ownership:
+ *   - Only one FrankaRobotContext can have control at a time
+ *   - claimControl() / releaseControl() manage ownership
+ *   - Auxiliary operations (stop, errorRecovery) work via atomic flags
+ */
+class FrankaRobotInstance {
+public:
+    /**
+     * @brief Construct and connect to robot at given IP
+     * @param ip Robot IP address
+     * @throws franka::Exception if connection fails
+     */
+    explicit FrankaRobotInstance(const std::string& ip);
+    
+    ~FrankaRobotInstance();
+    
+    // Non-copyable, non-movable
+    FrankaRobotInstance(const FrankaRobotInstance&) = delete;
+    FrankaRobotInstance& operator=(const FrankaRobotInstance&) = delete;
+    FrankaRobotInstance(FrankaRobotInstance&&) = delete;
+    FrankaRobotInstance& operator=(FrankaRobotInstance&&) = delete;
+    
+    // ========================================================================
+    // Accessors
+    // ========================================================================
+    
+    const std::string& ip() const { return ip_; }
+    franka::Robot& robot() { return *robot_; }
+    franka::Model& model() { return *model_; }
+    
+    // ========================================================================
+    // Control Ownership
+    // ========================================================================
+    
+    /**
+     * @brief Attempt to claim control of this robot
+     * @param ctx The context requesting control
+     * @return true if control was granted, false if another context has control
+     * 
+     * Thread-safe. Only one context can have control at a time.
+     */
+    bool claimControl(FrankaRobotContext* ctx);
+    
+    /**
+     * @brief Release control of this robot
+     * @param ctx The context releasing control (must be current owner)
+     */
+    void releaseControl(FrankaRobotContext* ctx);
+    
+    /**
+     * @brief Check if any context currently has control
+     */
+    bool isControlActive() const { return active_controller_.load() != nullptr; }
+    
+    /**
+     * @brief Get the context currently in control (may be nullptr)
+     */
+    FrankaRobotContext* activeController() const { return active_controller_.load(); }
+    
+    // ========================================================================
+    // Universal Operations (callable by any block, any time)
+    // ========================================================================
+    
+    /**
+     * @brief Request stop of current control (thread-safe, atomic)
+     * 
+     * This sets a flag that the active controller's callback will check.
+     * Safe to call from any thread, any time.
+     */
+    void requestStop();
+    
+    /**
+     * @brief Check if stop has been requested
+     */
+    bool isStopRequested() const { return stop_requested_.load(); }
+    
+    /**
+     * @brief Clear the stop request flag (called when starting new control)
+     */
+    void clearStopRequest() { stop_requested_.store(false); }
+    
+    /**
+     * @brief Attempt automatic error recovery
+     * @return true if recovery succeeded, false if failed or control is active
+     * 
+     * Can only be called when no control is active.
+     */
+    bool automaticErrorRecovery();
+    
+    /**
+     * @brief Read robot state once (outside of control loop)
+     * @param state_out Output for robot state (can be nullptr)
+     * @param model_out Output for model data (can be nullptr)
+     * @return true if read succeeded, false if control is active
+     * 
+     * Can only be called when no control is active.
+     */
+    bool readOnce(FrankaRobotStateBus* state_out, FrankaModelDataBus* model_out = nullptr);
+    
+    // ========================================================================
+    // Settings Application
+    // ========================================================================
+    
+    /**
+     * @brief Apply robot settings
+     * @param settings Settings to apply
+     * 
+     * Should be called before starting control.
+     */
+    void applySettings(const FrankaRobotSettingsBus* settings);
+    
+private:
+    std::string ip_;
+    std::unique_ptr<franka::Robot> robot_;
+    std::unique_ptr<franka::Model> model_;
+    
+    std::atomic<FrankaRobotContext*> active_controller_{nullptr};
+    std::atomic<bool> stop_requested_{false};
+    
+    // Helper functions
+    void copyRobotState(const franka::RobotState& src, FrankaRobotStateBus* dst);
+    void computeModelData(const franka::RobotState& state, FrankaModelDataBus* dst);
+};
+
+// ============================================================================
+// FrankaRobotManager - Global Registry (IP → Instance)
+// ============================================================================
+
+/**
+ * @brief Global manager for robot instances, indexed by IP.
+ * 
+ * This singleton-like class maintains a registry of all robot connections.
+ * All operations can be performed by IP address, making auxiliary blocks
+ * trivial to implement (no handle wiring needed).
+ * 
+ * Thread Safety:
+ *   - All static methods are thread-safe
+ *   - Uses mutex for instance map access
+ *   - Individual instance operations use atomic flags
+ */
+class FrankaRobotManager {
+public:
+    // ========================================================================
+    // Instance Management
+    // ========================================================================
+    
+    /**
+     * @brief Get or create a robot instance for the given IP
+     * @param ip Robot IP address
+     * @return Pointer to the instance (never null if no exception)
+     * @throws franka::Exception if connection fails (for new instance)
+     */
+    static FrankaRobotInstance* getOrCreate(const std::string& ip);
+    
+    /**
+     * @brief Get existing instance for IP (no creation)
+     * @param ip Robot IP address
+     * @return Pointer to instance, or nullptr if not connected
+     */
+    static FrankaRobotInstance* get(const std::string& ip);
+    
+    /**
+     * @brief Check if a robot is connected
+     * @param ip Robot IP address
+     */
+    static bool isConnected(const std::string& ip);
+    
+    /**
+     * @brief Shutdown and remove all instances
+     * 
+     * Called during model terminate to clean up all connections.
+     */
+    static void shutdownAll();
+    
+    // ========================================================================
+    // Operations by IP (for auxiliary blocks)
+    // ========================================================================
+    
+    /**
+     * @brief Request stop for robot at IP
+     * @param ip Robot IP address
+     * 
+     * If no robot is connected at this IP, does nothing.
+     */
+    static void stop(const std::string& ip);
+    
+    /**
+     * @brief Attempt automatic error recovery for robot at IP
+     * @param ip Robot IP address
+     * @return true if recovery succeeded
+     */
+    static bool automaticErrorRecovery(const std::string& ip);
+    
+    /**
+     * @brief Read robot state once for robot at IP
+     * @param ip Robot IP address
+     * @param state_out Output for robot state
+     * @param model_out Output for model data (optional)
+     * @return true if read succeeded
+     */
+    static bool readOnce(const std::string& ip, 
+                         FrankaRobotStateBus* state_out,
+                         FrankaModelDataBus* model_out = nullptr);
+    
+    /**
+     * @brief Check if control is currently running for robot at IP
+     * @param ip Robot IP address
+     */
+    static bool isControlRunning(const std::string& ip);
+    
+    // Sanitize IP string (trim whitespace, handle embedded nulls)
+    // Public so contexts can compare IPs consistently
+    static std::string sanitizeIP(const std::string& ip);
+    
+private:
+    static std::unordered_map<std::string, std::unique_ptr<FrankaRobotInstance>> instances_;
+    static std::mutex mutex_;
+};
+
+// ============================================================================
+// FrankaRobotContext - Per-Block Lightweight Context
+// ============================================================================
+
+/**
+ * @brief Lightweight context for a single Simulink block instance.
+ * 
+ * This class manages:
+ *   - I/O pointer wiring (Simulink signals ↔ robot data)
+ *   - Controller callback registration
+ *   - Control thread lifecycle
+ * 
+ * It does NOT own the robot connection - it borrows from FrankaRobotInstance
+ * via FrankaRobotManager.
+ * 
+ * Execution Model:
+ *   1. initialize(ip) - Get/create shared instance from manager
+ *   2. setControllerCallback(...) - Wire up Simulink controller
+ *   3. setXxxPointer(...) - Wire up I/O signals
+ *   4. startControl() - Claim control and spawn control thread
+ *   5. [control runs at 1kHz in callback]
+ *   6. requestStop() or falling enable edge - Control ends
+ *   7. Control thread exits, releases control
  */
 class FrankaRobotContext {
 public:
@@ -81,22 +337,21 @@ public:
     FrankaRobotContext& operator=(FrankaRobotContext&&) = delete;
     
     // ========================================================================
-    // Lifecycle (called from TLC Start/Terminate)
+    // Lifecycle
     // ========================================================================
     
     /**
-     * @brief Initialize connection to robot
+     * @brief Initialize by connecting to robot at IP
      * @param robot_ip IP address of the Franka robot
+     * 
+     * Gets or creates a shared FrankaRobotInstance from the manager.
      */
     void initialize(const std::string& robot_ip);
-
+    
     /**
-     * @brief Whether a robot connection has been initialized.
-     *
-     * Note: "initialized" means a franka::Robot instance exists (connection attempted
-     * and succeeded). Control may or may not be running.
+     * @brief Check if initialized (connected to a robot instance)
      */
-    bool isInitialized() const;
+    bool isInitialized() const { return instance_ != nullptr; }
     
     /**
      * @brief Set the controller callback function
@@ -106,132 +361,10 @@ public:
     void setControllerCallback(ControllerCallback callback, void* user_data);
     
     /**
-     * @brief Set pointer to Simulink robot state output bus
-     * @param state_ptr Pointer to FrankaRobotStateBus output
-     */
-    void setStateOutputPointer(FrankaRobotStateBus* state_ptr);
-    
-    /**
-     * @brief Set pointer to Simulink model data output bus
-     * @param model_ptr Pointer to FrankaModelDataBus output
-     */
-    void setModelOutputPointer(FrankaModelDataBus* model_ptr);
-    
-    /**
-     * @brief Set pointer to dt_sec output (control period)
-     * @param dt_sec_ptr Pointer to dt output [1] (seconds)
-     * 
-     * Note: dt_sec is also available in the state bus as 'time' (cumulative),
-     * but this separate output provides the per-callback period directly.
-     */
-    void setDtOutputPointer(double* dt_sec_ptr);
-    
-    /**
-     * @brief Set pointers to Simulink input signals (legacy torque-only interface)
-     * @param tau_J_d_ptr Pointer to tau_J_d input [7]
-     * @deprecated Use mode-specific setters instead
-     */
-    void setInputPointers(const double* tau_J_d_ptr);
-    
-    /**
      * @brief Set the control mode
-     * @param mode Control mode (Torques, JointPositions, JointVelocities, 
-     *                          CartesianPose, CartesianVelocities)
+     * @param mode Control mode
      */
     void setControlMode(FrankaControlMode mode);
-    
-    /**
-     * @brief Set torque command input pointer (mode: Torques)
-     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
-     */
-    void setTorqueInputPointer(const double* tau_J_d_ptr);
-    
-    /**
-     * @brief Set joint position command input pointer (mode: JointPositions)
-     * @param q_d_ptr Pointer to q_d input [7] (rad)
-     */
-    void setJointPositionInputPointer(const double* q_d_ptr);
-    
-    /**
-     * @brief Set joint velocity command input pointer (mode: JointVelocities)
-     * @param dq_d_ptr Pointer to dq_d input [7] (rad/s)
-     */
-    void setJointVelocityInputPointer(const double* dq_d_ptr);
-    
-    /**
-     * @brief Set Cartesian pose command input pointers (mode: CartesianPose)
-     * @param O_T_EE_d_ptr Pointer to O_T_EE_d input [16] (4x4 col-major, m)
-     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
-     */
-    void setCartesianPoseInputPointer(const double* O_T_EE_d_ptr, const double* elbow_d_ptr);
-    
-    /**
-     * @brief Set Cartesian velocity command input pointers (mode: CartesianVelocities)
-     * @param O_dP_EE_d_ptr Pointer to O_dP_EE_d input [6] (m/s, rad/s)
-     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
-     */
-    void setCartesianVelocityInputPointer(const double* O_dP_EE_d_ptr, const double* elbow_d_ptr);
-    
-    // ========================================================================
-    // Dual-callback mode input setters (torque + motion generator)
-    // ========================================================================
-    
-    /**
-     * @brief Set input pointers for Torques+JointPositions dual mode
-     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
-     * @param q_d_ptr Pointer to q_d input [7] (rad)
-     */
-    void setTorquesJointPositionInputPointers(const double* tau_J_d_ptr, const double* q_d_ptr);
-    
-    /**
-     * @brief Set input pointers for Torques+JointVelocities dual mode
-     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
-     * @param dq_d_ptr Pointer to dq_d input [7] (rad/s)
-     */
-    void setTorquesJointVelocityInputPointers(const double* tau_J_d_ptr, const double* dq_d_ptr);
-    
-    /**
-     * @brief Set input pointers for Torques+CartesianPose dual mode
-     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
-     * @param O_T_EE_d_ptr Pointer to O_T_EE_d input [16] (4x4 col-major, m)
-     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
-     */
-    void setTorquesCartesianPoseInputPointers(const double* tau_J_d_ptr, 
-                                               const double* O_T_EE_d_ptr, 
-                                               const double* elbow_d_ptr);
-    
-    /**
-     * @brief Set input pointers for Torques+CartesianVelocities dual mode
-     * @param tau_J_d_ptr Pointer to tau_J_d input [7] (Nm)
-     * @param O_dP_EE_d_ptr Pointer to O_dP_EE_d input [6] (m/s, rad/s)
-     * @param elbow_d_ptr Pointer to elbow_d input [2] (rad, sign)
-     */
-    void setTorquesCartesianVelocityInputPointers(const double* tau_J_d_ptr,
-                                                   const double* O_dP_EE_d_ptr,
-                                                   const double* elbow_d_ptr);
-    
-    /**
-     * @brief Set pointer to robot settings input bus
-     * @param settings_ptr Pointer to FrankaRobotSettingsBus input
-     * 
-     * Settings are applied when startControl() is called (on enable rising edge).
-     */
-    void setSettingsInputPointer(const FrankaRobotSettingsBus* settings_ptr);
-    
-    /**
-     * @brief Apply robot settings from the settings bus
-     * 
-     * This is called internally by startControl() before entering the control loop.
-     * It configures:
-     *   - Collision behavior thresholds
-     *   - Joint impedance stiffness
-     *   - Cartesian impedance stiffness
-     *   - End effector frames (NE_T_EE, EE_T_K)
-     *   - External load inertia
-     * 
-     * Rate limiter and cutoff frequency are used when calling robot.control().
-     */
-    void applySettings();
     
     /**
      * @brief Shutdown and cleanup
@@ -239,11 +372,42 @@ public:
     void shutdown();
     
     // ========================================================================
-    // Control (called from TLC Outputs for enable/disable)
+    // I/O Pointer Setup
+    // ========================================================================
+    
+    void setStateOutputPointer(FrankaRobotStateBus* state_ptr);
+    void setModelOutputPointer(FrankaModelDataBus* model_ptr);
+    void setDtOutputPointer(double* dt_sec_ptr);
+    void setSettingsInputPointer(const FrankaRobotSettingsBus* settings_ptr);
+    
+    // Single-callback mode input setters
+    void setTorqueInputPointer(const double* tau_J_d_ptr);
+    void setJointPositionInputPointer(const double* q_d_ptr);
+    void setJointVelocityInputPointer(const double* dq_d_ptr);
+    void setCartesianPoseInputPointer(const double* O_T_EE_d_ptr, const double* elbow_d_ptr);
+    void setCartesianVelocityInputPointer(const double* O_dP_EE_d_ptr, const double* elbow_d_ptr);
+    
+    // Dual-callback mode input setters
+    void setTorquesJointPositionInputPointers(const double* tau_J_d_ptr, const double* q_d_ptr);
+    void setTorquesJointVelocityInputPointers(const double* tau_J_d_ptr, const double* dq_d_ptr);
+    void setTorquesCartesianPoseInputPointers(const double* tau_J_d_ptr, 
+                                               const double* O_T_EE_d_ptr, 
+                                               const double* elbow_d_ptr);
+    void setTorquesCartesianVelocityInputPointers(const double* tau_J_d_ptr,
+                                                   const double* O_dP_EE_d_ptr,
+                                                   const double* elbow_d_ptr);
+    
+    // Legacy interface (deprecated)
+    void setInputPointers(const double* tau_J_d_ptr);
+    
+    // ========================================================================
+    // Control
     // ========================================================================
     
     /**
      * @brief Start the control loop
+     * 
+     * Claims control of the robot instance and spawns the control thread.
      */
     void startControl();
     
@@ -253,73 +417,43 @@ public:
     void requestStop();
     
     /**
-     * @brief Check if control is currently running
+     * @brief Check if control is currently running (this context)
      */
-    bool isControlRunning() const;
+    bool isControlRunning() const { return running_.load(); }
     
 private:
     void controlThreadFunc();
-
-    /**
-     * @brief Publish one robot state snapshot to Simulink outputs.
-     *
-     * This uses franka::Robot::readOnce() and therefore MUST be called only when
-     * robot.control() is NOT executing.
-     *
-     * Used to make boundary conditions tidy:
-     * - right after enable (before entering control) so robot_mode is visible even if
-     *   control fails to start (e.g. robot in error)
-     * - right after control ends (normal finish / stop / exception) so the final state
-     *   is visible to the user.
-     */
     void publishStateOnce(double dt_sec_override);
     
-    // ========================================================================
-    // Single-callback mode callbacks
-    // ========================================================================
-    franka::Torques torqueCallback(const franka::RobotState& state,
-                                    franka::Duration period);
-    franka::JointPositions jointPositionCallback(const franka::RobotState& state,
-                                                  franka::Duration period);
-    franka::JointVelocities jointVelocityCallback(const franka::RobotState& state,
-                                                   franka::Duration period);
-    franka::CartesianPose cartesianPoseCallback(const franka::RobotState& state,
-                                                 franka::Duration period);
-    franka::CartesianVelocities cartesianVelocityCallback(const franka::RobotState& state,
-                                                           franka::Duration period);
+    // Mode-specific control callbacks
+    franka::Torques torqueCallback(const franka::RobotState& state, franka::Duration period);
+    franka::JointPositions jointPositionCallback(const franka::RobotState& state, franka::Duration period);
+    franka::JointVelocities jointVelocityCallback(const franka::RobotState& state, franka::Duration period);
+    franka::CartesianPose cartesianPoseCallback(const franka::RobotState& state, franka::Duration period);
+    franka::CartesianVelocities cartesianVelocityCallback(const franka::RobotState& state, franka::Duration period);
     
-    // ========================================================================
-    // Dual-callback mode callbacks (torque + motion generator)
-    // These return Torques for the torque callback part
-    // ========================================================================
-    franka::Torques dualTorqueCallback(const franka::RobotState& state,
-                                        franka::Duration period);
-    franka::JointPositions dualJointPositionMotionCallback(const franka::RobotState& state,
-                                                            franka::Duration period);
-    franka::JointVelocities dualJointVelocityMotionCallback(const franka::RobotState& state,
-                                                             franka::Duration period);
-    franka::CartesianPose dualCartesianPoseMotionCallback(const franka::RobotState& state,
-                                                           franka::Duration period);
-    franka::CartesianVelocities dualCartesianVelocityMotionCallback(const franka::RobotState& state,
-                                                                     franka::Duration period);
+    // Dual-callback mode callbacks
+    franka::Torques dualTorqueCallback(const franka::RobotState& state, franka::Duration period);
+    franka::JointPositions dualJointPositionMotionCallback(const franka::RobotState& state, franka::Duration period);
+    franka::JointVelocities dualJointVelocityMotionCallback(const franka::RobotState& state, franka::Duration period);
+    franka::CartesianPose dualCartesianPoseMotionCallback(const franka::RobotState& state, franka::Duration period);
+    franka::CartesianVelocities dualCartesianVelocityMotionCallback(const franka::RobotState& state, franka::Duration period);
     
-    // Common pre-callback logic (state copy, model compute, controller execute)
-    // Returns true if control should continue, false if stop requested
+    // Common pre-callback logic
     bool executePreCallback(const franka::RobotState& state, franka::Duration period);
     
-    // Robot connection
-    std::string robot_ip_;
-    std::unique_ptr<franka::Robot> robot_;
-    std::unique_ptr<franka::Model> model_;
+    // Helper functions
+    void copyRobotState(const franka::RobotState& src, FrankaRobotStateBus* dst);
+    void computeModelData(const franka::RobotState& state, FrankaModelDataBus* dst);
+    
+    // Shared robot instance (borrowed from manager, not owned)
+    FrankaRobotInstance* instance_{nullptr};
     
     // Control mode
     FrankaControlMode control_mode_{FrankaControlMode::Torques};
     
     // Control state
     std::atomic<bool> running_{false};
-    std::atomic<bool> stop_requested_{false};
-
-    // Control thread (runs robot.control())
     std::thread control_thread_;
     
     // Controller callback (points to Simulink-generated function)
@@ -335,18 +469,12 @@ private:
     const FrankaRobotSettingsBus* settings_in_{nullptr};
     
     // Pointers to Simulink input signals (mode-specific)
-    const double* tau_J_d_in_{nullptr};      // Torques mode
-    const double* q_d_in_{nullptr};           // JointPositions mode
-    const double* dq_d_in_{nullptr};          // JointVelocities mode
-    const double* O_T_EE_d_in_{nullptr};      // CartesianPose mode
-    const double* O_dP_EE_d_in_{nullptr};     // CartesianVelocities mode
-    const double* elbow_d_in_{nullptr};       // Cartesian modes (elbow config)
-    
-    // Helper to copy franka::RobotState to FrankaRobotStateBus
-    void copyRobotState(const franka::RobotState& src, FrankaRobotStateBus* dst);
-    
-    // Helper to compute and copy model data to FrankaModelDataBus
-    void computeModelData(const franka::RobotState& state, FrankaModelDataBus* dst);
+    const double* tau_J_d_in_{nullptr};
+    const double* q_d_in_{nullptr};
+    const double* dq_d_in_{nullptr};
+    const double* O_T_EE_d_in_{nullptr};
+    const double* O_dP_EE_d_in_{nullptr};
+    const double* elbow_d_in_{nullptr};
 };
 
 #endif // FRANKA_ROBOT_API_H
