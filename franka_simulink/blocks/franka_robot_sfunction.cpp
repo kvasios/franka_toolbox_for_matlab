@@ -33,7 +33,7 @@
  *     5. command   (varies)               - Mode 0: tau_J_d (7x1)   [Nm]
  *                                           Mode 1: q_d (7x1)       [rad]
  *                                           Mode 2: dq_d (7x1)      [rad/s]
- *                                           Mode 3: O_T_EE_d (16x1) [m] (4x4 col-major)
+ *                                           Mode 3: O_T_EE_d (4x4)  [m] (homogeneous transform)
  *                                           Mode 4: O_dP_EE_d (6x1) [m/s, rad/s]
  *     6. elbow_d   (2x1)                  - Elbow config (modes 3-4 only)
  *
@@ -41,7 +41,7 @@
  *     5. tau_J_d    (7x1)                  - Commanded joint torques [Nm]
  *     6. motion_cmd (varies)               - Mode 5: q_d (7x1)       [rad]
  *                                            Mode 6: dq_d (7x1)      [rad/s]
- *                                            Mode 7: O_T_EE_d (16x1) [m] (4x4 col-major)
+ *                                            Mode 7: O_T_EE_d (4x4)  [m] (homogeneous transform)
  *                                            Mode 8: O_dP_EE_d (6x1) [m/s, rad/s]
  *     7. elbow_d    (2x1)                  - Elbow config (modes 7-8 only)
  *
@@ -273,12 +273,12 @@ static void mdlInitializeSizes(SimStruct *S)
             break;
             
         case CTRL_CARTESIAN_POSE:
-            /* Port 2: O_T_EE_d (16x1, 4x4 col-major) */
-            ssSetInputPortWidth(S, IN_COMMAND, 16);
+            /* Port 5: O_T_EE_d (4x4 homogeneous transform, column-major) */
+            ssSetInputPortMatrixDimensions(S, IN_COMMAND, 4, 4);
             ssSetInputPortDataType(S, IN_COMMAND, SS_DOUBLE);
             ssSetInputPortDirectFeedThrough(S, IN_COMMAND, 1);
             ssSetInputPortRequiredContiguous(S, IN_COMMAND, 1);
-            /* Port 3: elbow_d (2x1) */
+            /* Port 6: elbow_d (2x1) */
             ssSetInputPortWidth(S, IN_ELBOW, 2);
             ssSetInputPortDataType(S, IN_ELBOW, SS_DOUBLE);
             ssSetInputPortDirectFeedThrough(S, IN_ELBOW, 1);
@@ -329,17 +329,17 @@ static void mdlInitializeSizes(SimStruct *S)
             break;
             
         case CTRL_TORQUES_CARTESIAN_POSE:
-            /* Port 2: tau_J_d (7x1) */
+            /* Port 5: tau_J_d (7x1) */
             ssSetInputPortWidth(S, IN_TAU_J_D, 7);
             ssSetInputPortDataType(S, IN_TAU_J_D, SS_DOUBLE);
             ssSetInputPortDirectFeedThrough(S, IN_TAU_J_D, 1);
             ssSetInputPortRequiredContiguous(S, IN_TAU_J_D, 1);
-            /* Port 3: O_T_EE_d (16x1, 4x4 col-major) */
-            ssSetInputPortWidth(S, IN_MOTION_CMD, 16);
+            /* Port 6: O_T_EE_d (4x4 homogeneous transform, column-major) */
+            ssSetInputPortMatrixDimensions(S, IN_MOTION_CMD, 4, 4);
             ssSetInputPortDataType(S, IN_MOTION_CMD, SS_DOUBLE);
             ssSetInputPortDirectFeedThrough(S, IN_MOTION_CMD, 1);
             ssSetInputPortRequiredContiguous(S, IN_MOTION_CMD, 1);
-            /* Port 4: elbow_d (2x1) */
+            /* Port 7: elbow_d (2x1) */
             ssSetInputPortWidth(S, IN_ELBOW_DUAL, 2);
             ssSetInputPortDataType(S, IN_ELBOW_DUAL, SS_DOUBLE);
             ssSetInputPortDirectFeedThrough(S, IN_ELBOW_DUAL, 1);
