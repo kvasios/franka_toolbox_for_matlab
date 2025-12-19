@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <stdexcept>
 
 // ============================================================================
 // Constructor / Destructor
@@ -21,7 +22,43 @@ FrankaRobotContext::~FrankaRobotContext() {
 // ============================================================================
 
 void FrankaRobotContext::initialize(const std::string& robot_ip) {
-    robot_ip_ = robot_ip;
+    // Defensive sanitation:
+    // - Some codegen paths (esp. when strings are made tunable and then converted to
+    //   fixed-width ASCII vectors) can introduce trailing whitespace or embedded '\0'.
+    // - libfranka expects a clean hostname/IP string.
+    auto is_ws = [](unsigned char c) -> bool {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    };
+
+    std::string sanitized = robot_ip;
+    const std::string::size_type nul_pos = sanitized.find('\0');
+    if (nul_pos != std::string::npos) {
+        sanitized.resize(nul_pos);
+    }
+    std::string::size_type start = 0;
+    while (start < sanitized.size() && is_ws(static_cast<unsigned char>(sanitized[start]))) {
+        ++start;
+    }
+    std::string::size_type end = sanitized.size();
+    while (end > start && is_ws(static_cast<unsigned char>(sanitized[end - 1]))) {
+        --end;
+    }
+    sanitized = sanitized.substr(start, end - start);
+
+    if (sanitized.empty()) {
+        throw std::invalid_argument("robot_ip is empty");
+    }
+
+    // If already connected to the same host, do nothing.
+    if (robot_ && robot_ip_ == sanitized) {
+        return;
+    }
+
+    // If a previous connection exists, cleanly tear it down first.
+    // (Should not happen during running control, but keep it safe.)
+    shutdown();
+
+    robot_ip_ = sanitized;
     
     try {
         robot_ = std::make_unique<franka::Robot>(robot_ip_);
@@ -39,6 +76,10 @@ void FrankaRobotContext::initialize(const std::string& robot_ip) {
         std::cerr << "Failed to connect to robot: " << e.what() << std::endl;
         throw;
     }
+}
+
+bool FrankaRobotContext::isInitialized() const {
+    return static_cast<bool>(robot_);
 }
 
 void FrankaRobotContext::setControllerCallback(ControllerCallback callback, void* user_data) {
@@ -258,12 +299,44 @@ void FrankaRobotContext::shutdown() {
     robot_.reset();
 }
 
+void FrankaRobotContext::publishStateOnce(double dt_sec_override) {
+    if (!robot_) {
+        return;
+    }
+
+    try {
+        const franka::RobotState state = robot_->readOnce();
+
+        if (state_out_) {
+            copyRobotState(state, state_out_);
+        }
+        if (model_out_ && model_) {
+            computeModelData(state, model_out_);
+        }
+        if (dt_sec_out_) {
+            *dt_sec_out_ = dt_sec_override;
+        }
+    } catch (const franka::Exception& e) {
+        static std::atomic<bool> warned{false};
+        if (!warned.exchange(true)) {
+            std::cerr << "FrankaRobotContext: readOnce() failed while publishing boundary state: "
+                      << e.what() << std::endl;
+        }
+    }
+}
+
 // ============================================================================
 // Control Methods
 // ============================================================================
 
 void FrankaRobotContext::startControl() {
     if (running_) {
+        return;
+    }
+
+    if (!robot_) {
+        std::cerr << "FrankaRobotContext: startControl() called before initialize(); ignoring."
+                  << std::endl;
         return;
     }
     
@@ -276,6 +349,10 @@ void FrankaRobotContext::startControl() {
     // Apply robot settings before starting control
     // Settings are re-read on each enable, allowing runtime changes
     applySettings();
+
+    // Publish state once on the boundary, before entering robot.control().
+    // This makes robot_mode visible even if control fails to start (robot in error).
+    publishStateOnce(0.0);
     
     stop_requested_ = false;
     running_ = true;
@@ -306,6 +383,10 @@ void FrankaRobotContext::controlThreadFunc() {
         cutoff_frequency = settings_in_->cutoff_frequency;
     }
     
+    // Publish boundary state BEFORE entering robot.control().
+    // Important: readOnce() must not be called while robot.control() runs.
+    publishStateOnce(0.0);
+
     try {
         switch (control_mode_) {
             // ================================================================
@@ -436,6 +517,9 @@ void FrankaRobotContext::controlThreadFunc() {
     } catch (const franka::Exception& e) {
         std::cerr << "Control exception: " << e.what() << std::endl;
     }
+
+    // Publish boundary state AFTER robot.control() ends (normal finish / stop / exception).
+    publishStateOnce(0.0);
     
     running_ = false;
 }

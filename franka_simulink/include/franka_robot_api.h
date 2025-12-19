@@ -89,6 +89,14 @@ public:
      * @param robot_ip IP address of the Franka robot
      */
     void initialize(const std::string& robot_ip);
+
+    /**
+     * @brief Whether a robot connection has been initialized.
+     *
+     * Note: "initialized" means a franka::Robot instance exists (connection attempted
+     * and succeeded). Control may or may not be running.
+     */
+    bool isInitialized() const;
     
     /**
      * @brief Set the controller callback function
@@ -251,6 +259,20 @@ public:
     
 private:
     void controlThreadFunc();
+
+    /**
+     * @brief Publish one robot state snapshot to Simulink outputs.
+     *
+     * This uses franka::Robot::readOnce() and therefore MUST be called only when
+     * robot.control() is NOT executing.
+     *
+     * Used to make boundary conditions tidy:
+     * - right after enable (before entering control) so robot_mode is visible even if
+     *   control fails to start (e.g. robot in error)
+     * - right after control ends (normal finish / stop / exception) so the final state
+     *   is visible to the user.
+     */
+    void publishStateOnce(double dt_sec_override);
     
     // ========================================================================
     // Single-callback mode callbacks
