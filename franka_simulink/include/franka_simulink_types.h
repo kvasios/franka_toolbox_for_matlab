@@ -28,22 +28,26 @@
 struct FrankaRobotStateBus {
     // ========================================================================
     // Transformation Matrices (4x4 homogeneous transforms, column-major)
+    // 
+    // NOTE: Stored as flat 1D arrays (16 elements) to match Simulink's
+    // column-major memory layout. This allows linear indexing in generated
+    // code while Simulink displays them as [4 4] matrices.
     // ========================================================================
     
-    double O_T_EE[4][4];    ///< Measured EE pose in base frame
-    double O_T_EE_d[4][4];  ///< Desired EE pose in base frame
-    double F_T_EE[4][4];    ///< EE pose in flange frame
-    double F_T_NE[4][4];    ///< Nominal EE pose in flange frame
-    double NE_T_EE[4][4];   ///< EE pose in nominal EE frame
-    double EE_T_K[4][4];    ///< Stiffness frame pose in EE frame
-    double O_T_EE_c[4][4];  ///< Commanded EE pose in base frame
+    double O_T_EE[16];      ///< Measured EE pose in base frame (4x4 col-major)
+    double O_T_EE_d[16];    ///< Desired EE pose in base frame (4x4 col-major)
+    double F_T_EE[16];      ///< EE pose in flange frame (4x4 col-major)
+    double F_T_NE[16];      ///< Nominal EE pose in flange frame (4x4 col-major)
+    double NE_T_EE[16];     ///< EE pose in nominal EE frame (4x4 col-major)
+    double EE_T_K[16];      ///< Stiffness frame pose in EE frame (4x4 col-major)
+    double O_T_EE_c[16];    ///< Commanded EE pose in base frame (4x4 col-major)
     
     // ========================================================================
     // End Effector Inertial Parameters
     // ========================================================================
     
     double m_ee;            ///< Configured EE mass [kg]
-    double I_ee[3][3];      ///< EE rotational inertia matrix
+    double I_ee[9];         ///< EE rotational inertia matrix (3x3 col-major)
     double F_x_Cee[3];      ///< EE center of mass in flange frame [m]
     
     // ========================================================================
@@ -51,7 +55,7 @@ struct FrankaRobotStateBus {
     // ========================================================================
     
     double m_load;          ///< Configured external load mass [kg]
-    double I_load[3][3];    ///< External load rotational inertia matrix
+    double I_load[9];       ///< External load rotational inertia matrix (3x3 col-major)
     double F_x_Cload[3];    ///< External load CoM in flange frame [m]
     
     // ========================================================================
@@ -59,7 +63,7 @@ struct FrankaRobotStateBus {
     // ========================================================================
     
     double m_total;         ///< Total mass (EE + load) [kg]
-    double I_total[3][3];   ///< Total rotational inertia matrix
+    double I_total[9];      ///< Total rotational inertia matrix (3x3 col-major)
     double F_x_Ctotal[3];   ///< Total CoM in flange frame [m]
     
     // ========================================================================
@@ -148,9 +152,12 @@ enum FrankaRobotMode {
 struct FrankaModelDataBus {
     // ========================================================================
     // Dynamics
+    // 
+    // NOTE: Matrices stored as flat 1D arrays (column-major) to match
+    // Simulink's memory layout for proper linear indexing in generated code.
     // ========================================================================
     
-    double mass[7][7];      ///< Mass matrix M(q) [kg*m^2]
+    double mass[49];        ///< Mass matrix M(q) [kg*m^2] (7x7 col-major)
     double coriolis[7];     ///< Coriolis force vector c(q,dq) [Nm]
     double gravity[7];      ///< Gravity vector g(q) [Nm]
     
@@ -158,8 +165,8 @@ struct FrankaModelDataBus {
     // Jacobians (End Effector)
     // ========================================================================
     
-    double jacobian[6][7];       ///< EE Jacobian in base frame (zero Jacobian)
-    double jacobian_body[6][7];  ///< EE body Jacobian (in EE frame)
+    double jacobian[42];         ///< EE Jacobian in base frame (6x7 col-major)
+    double jacobian_body[42];    ///< EE body Jacobian in EE frame (6x7 col-major)
 };
 
 /**
@@ -187,10 +194,12 @@ struct FrankaRobotSettingsBus {
     
     // ========================================================================
     // End Effector Frame Configuration (4x4 transforms, column-major)
+    // 
+    // NOTE: Stored as flat 1D arrays to match Simulink's memory layout.
     // ========================================================================
     
-    double NE_T_EE[4][4];   ///< Nominal EE to EE transformation
-    double EE_T_K[4][4];    ///< EE to stiffness frame transformation
+    double NE_T_EE[16];     ///< Nominal EE to EE transformation (4x4 col-major)
+    double EE_T_K[16];      ///< EE to stiffness frame transformation (4x4 col-major)
     
     // ========================================================================
     // Collision Thresholds - Torque (7 joints)
@@ -216,7 +225,7 @@ struct FrankaRobotSettingsBus {
     
     double load_mass;                  ///< External load mass [kg]
     double load_center_of_mass[3];     ///< Load center of mass in flange frame [m]
-    double load_inertia_matrix[3][3];  ///< Load rotational inertia [kg*m^2]
+    double load_inertia_matrix[9];     ///< Load rotational inertia [kg*m^2] (3x3 col-major)
 };
 
 #endif // FRANKA_SIMULINK_TYPES_H

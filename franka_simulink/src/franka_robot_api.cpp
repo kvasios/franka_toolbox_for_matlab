@@ -216,8 +216,8 @@ void FrankaRobotInstance::applySettings(const FrankaRobotSettingsBus* settings) 
         // ====================================================================
         {
             std::array<double, 16> NE_T_EE;
-            std::copy(&settings->NE_T_EE[0][0],
-                      &settings->NE_T_EE[0][0] + 16,
+            std::copy(settings->NE_T_EE,
+                      settings->NE_T_EE + 16,
                       NE_T_EE.begin());
             robot_->setEE(NE_T_EE);
         }
@@ -227,8 +227,8 @@ void FrankaRobotInstance::applySettings(const FrankaRobotSettingsBus* settings) 
         // ====================================================================
         {
             std::array<double, 16> EE_T_K;
-            std::copy(&settings->EE_T_K[0][0],
-                      &settings->EE_T_K[0][0] + 16,
+            std::copy(settings->EE_T_K,
+                      settings->EE_T_K + 16,
                       EE_T_K.begin());
             robot_->setK(EE_T_K);
         }
@@ -244,8 +244,8 @@ void FrankaRobotInstance::applySettings(const FrankaRobotSettingsBus* settings) 
             std::copy(settings->load_center_of_mass,
                       settings->load_center_of_mass + 3,
                       F_x_Cload.begin());
-            std::copy(&settings->load_inertia_matrix[0][0],
-                      &settings->load_inertia_matrix[0][0] + 9,
+            std::copy(settings->load_inertia_matrix,
+                      settings->load_inertia_matrix + 9,
                       load_inertia.begin());
             
             robot_->setLoad(load_mass, F_x_Cload, load_inertia);
@@ -261,37 +261,32 @@ void FrankaRobotInstance::applySettings(const FrankaRobotSettingsBus* settings) 
 
 void FrankaRobotInstance::copyRobotState(const franka::RobotState& src, 
                                           FrankaRobotStateBus* dst) {
+    // Copy flat arrays directly (libfranka uses std::array which is contiguous)
     #define COPY_ARRAY(field) \
         std::copy(src.field.begin(), src.field.end(), dst->field)
     
-    #define COPY_MATRIX_4x4(field) \
-        std::copy(src.field.begin(), src.field.end(), &dst->field[0][0])
-    
-    #define COPY_MATRIX_3x3(field) \
-        std::copy(src.field.begin(), src.field.end(), &dst->field[0][0])
-    
-    // Transformation Matrices (4x4)
-    COPY_MATRIX_4x4(O_T_EE);
-    COPY_MATRIX_4x4(O_T_EE_d);
-    COPY_MATRIX_4x4(F_T_EE);
-    COPY_MATRIX_4x4(F_T_NE);
-    COPY_MATRIX_4x4(NE_T_EE);
-    COPY_MATRIX_4x4(EE_T_K);
-    COPY_MATRIX_4x4(O_T_EE_c);
+    // Transformation Matrices (4x4 stored as flat 16-element arrays)
+    COPY_ARRAY(O_T_EE);
+    COPY_ARRAY(O_T_EE_d);
+    COPY_ARRAY(F_T_EE);
+    COPY_ARRAY(F_T_NE);
+    COPY_ARRAY(NE_T_EE);
+    COPY_ARRAY(EE_T_K);
+    COPY_ARRAY(O_T_EE_c);
     
     // End Effector Inertial Parameters
     dst->m_ee = src.m_ee;
-    COPY_MATRIX_3x3(I_ee);
+    COPY_ARRAY(I_ee);
     COPY_ARRAY(F_x_Cee);
     
     // External Load Inertial Parameters
     dst->m_load = src.m_load;
-    COPY_MATRIX_3x3(I_load);
+    COPY_ARRAY(I_load);
     COPY_ARRAY(F_x_Cload);
     
     // Total Inertial Parameters
     dst->m_total = src.m_total;
-    COPY_MATRIX_3x3(I_total);
+    COPY_ARRAY(I_total);
     COPY_ARRAY(F_x_Ctotal);
     
     // Elbow Configuration
@@ -336,16 +331,14 @@ void FrankaRobotInstance::copyRobotState(const franka::RobotState& src,
     dst->time = src.time.toSec();
     
     #undef COPY_ARRAY
-    #undef COPY_MATRIX_4x4
-    #undef COPY_MATRIX_3x3
 }
 
 void FrankaRobotInstance::computeModelData(const franka::RobotState& state,
                                             FrankaModelDataBus* dst) {
-    // Mass matrix M(q)
+    // Mass matrix M(q) - stored as flat 49-element array (7x7 col-major)
     {
         auto M = model_->mass(state);
-        std::copy(M.begin(), M.end(), &dst->mass[0][0]);
+        std::copy(M.begin(), M.end(), dst->mass);
     }
     
     // Coriolis force vector c(q,dq)
@@ -360,16 +353,16 @@ void FrankaRobotInstance::computeModelData(const franka::RobotState& state,
         std::copy(g.begin(), g.end(), dst->gravity);
     }
     
-    // End effector Jacobian in base frame (zero Jacobian)
+    // End effector Jacobian in base frame - stored as flat 42-element array (6x7 col-major)
     {
         auto J = model_->zeroJacobian(franka::Frame::kEndEffector, state);
-        std::copy(J.begin(), J.end(), &dst->jacobian[0][0]);
+        std::copy(J.begin(), J.end(), dst->jacobian);
     }
     
-    // End effector body Jacobian (in EE frame)
+    // End effector body Jacobian - stored as flat 42-element array (6x7 col-major)
     {
         auto J_body = model_->bodyJacobian(franka::Frame::kEndEffector, state);
-        std::copy(J_body.begin(), J_body.end(), &dst->jacobian_body[0][0]);
+        std::copy(J_body.begin(), J_body.end(), dst->jacobian_body);
     }
 }
 
@@ -1103,33 +1096,29 @@ franka::CartesianVelocities FrankaRobotContext::dualCartesianVelocityMotionCallb
 
 void FrankaRobotContext::copyRobotState(const franka::RobotState& src, 
                                          FrankaRobotStateBus* dst) {
+    // Copy flat arrays directly (libfranka uses std::array which is contiguous)
     #define COPY_ARRAY(field) \
         std::copy(src.field.begin(), src.field.end(), dst->field)
     
-    #define COPY_MATRIX_4x4(field) \
-        std::copy(src.field.begin(), src.field.end(), &dst->field[0][0])
-    
-    #define COPY_MATRIX_3x3(field) \
-        std::copy(src.field.begin(), src.field.end(), &dst->field[0][0])
-    
-    COPY_MATRIX_4x4(O_T_EE);
-    COPY_MATRIX_4x4(O_T_EE_d);
-    COPY_MATRIX_4x4(F_T_EE);
-    COPY_MATRIX_4x4(F_T_NE);
-    COPY_MATRIX_4x4(NE_T_EE);
-    COPY_MATRIX_4x4(EE_T_K);
-    COPY_MATRIX_4x4(O_T_EE_c);
+    // Transformation Matrices (4x4 stored as flat 16-element arrays)
+    COPY_ARRAY(O_T_EE);
+    COPY_ARRAY(O_T_EE_d);
+    COPY_ARRAY(F_T_EE);
+    COPY_ARRAY(F_T_NE);
+    COPY_ARRAY(NE_T_EE);
+    COPY_ARRAY(EE_T_K);
+    COPY_ARRAY(O_T_EE_c);
     
     dst->m_ee = src.m_ee;
-    COPY_MATRIX_3x3(I_ee);
+    COPY_ARRAY(I_ee);
     COPY_ARRAY(F_x_Cee);
     
     dst->m_load = src.m_load;
-    COPY_MATRIX_3x3(I_load);
+    COPY_ARRAY(I_load);
     COPY_ARRAY(F_x_Cload);
     
     dst->m_total = src.m_total;
-    COPY_MATRIX_3x3(I_total);
+    COPY_ARRAY(I_total);
     COPY_ARRAY(F_x_Ctotal);
     
     COPY_ARRAY(elbow);
@@ -1168,8 +1157,6 @@ void FrankaRobotContext::copyRobotState(const franka::RobotState& src,
     dst->time = src.time.toSec();
     
     #undef COPY_ARRAY
-    #undef COPY_MATRIX_4x4
-    #undef COPY_MATRIX_3x3
 }
 
 void FrankaRobotContext::computeModelData(const franka::RobotState& state,
@@ -1178,9 +1165,10 @@ void FrankaRobotContext::computeModelData(const franka::RobotState& state,
     
     auto& model = instance_->model();
     
+    // Mass matrix M(q) - stored as flat 49-element array (7x7 col-major)
     {
         auto M = model.mass(state);
-        std::copy(M.begin(), M.end(), &dst->mass[0][0]);
+        std::copy(M.begin(), M.end(), dst->mass);
     }
     
     {
@@ -1193,13 +1181,14 @@ void FrankaRobotContext::computeModelData(const franka::RobotState& state,
         std::copy(g.begin(), g.end(), dst->gravity);
     }
     
+    // Jacobians - stored as flat 42-element arrays (6x7 col-major)
     {
         auto J = model.zeroJacobian(franka::Frame::kEndEffector, state);
-        std::copy(J.begin(), J.end(), &dst->jacobian[0][0]);
+        std::copy(J.begin(), J.end(), dst->jacobian);
     }
     
     {
         auto J_body = model.bodyJacobian(franka::Frame::kEndEffector, state);
-        std::copy(J_body.begin(), J_body.end(), &dst->jacobian_body[0][0]);
+        std::copy(J_body.begin(), J_body.end(), dst->jacobian_body);
     }
 }
