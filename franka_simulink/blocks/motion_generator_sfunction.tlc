@@ -267,11 +267,10 @@ static MotionGenState %<stateVarName>;
     %assign qDAddr = LibBlockOutputSignalAddr(0, "", "", 0)
     %assign finishedAddr = LibBlockOutputSignalAddr(1, "", "", 0)
     
-    %% Get sample time
-    %assign sampleTime = LibBlockSampleTime(block)
-    %if sampleTime <= 0.0
-        %assign sampleTime = 0.001
-    %endif
+    %% Fixed time step (1kHz) - the block is designed to run inside the libfranka
+    %% 1kHz callback. Using a hardcoded dt makes the trajectory invariant to the
+    %% base model sample time (LibGetT() only advances at base rate, not callback rate).
+    %assign dt = 0.001
     
     /* Motion Generator Block */
     {
@@ -301,10 +300,19 @@ static MotionGenState %<stateVarName>;
         if (state->motion_active > 0.5) {
             const bool finished = motiongen_compute(state, state->time, q_d_out);
             *motion_finished_out = finished ? 1.0 : 0.0;
-            state->time += %<sampleTime>;
+            state->time += %<dt>;
         } else {
+            /* Not active: pass-through the current q_start input.
+             *
+             * Rationale (especially important inside function-call subsystems):
+             * The block can execute before any rising-edge "start" capture occurs.
+             * If we output the stored state->q_start (zero-initialized), we can
+             * create an initial discontinuity. Keeping state->q_start synced also
+             * ensures the next start uses the latest upstream q_start.
+             */
             for (int i = 0; i < MOTION_GEN_NUM_JOINTS; i++) {
-                q_d_out[i] = state->q_start[i];
+                state->q_start[i] = q_start_in[i];
+                q_d_out[i] = q_start_in[i];
             }
             *motion_finished_out = 0.0;
         }

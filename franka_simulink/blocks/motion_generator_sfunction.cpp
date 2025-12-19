@@ -346,6 +346,15 @@ static void mdlInitializeSizes(SimStruct *S)
  * ======================================================================== */
 static void mdlInitializeSampleTimes(SimStruct *S)
 {
+    /* IMPORTANT:
+     * This block is typically used inside Triggered / Function-Call subsystems.
+     * Such subsystems require contained blocks to inherit sample time (-1) so
+     * they execute only when the subsystem is triggered.
+     *
+     * We still keep the motion generator's *internal* timebase fixed at 1kHz
+     * (see dt in mdlOutputs), making the trajectory invariant to base model
+     * sample time while remaining compatible with triggered execution.
+     */
     ssSetSampleTime(S, 0, INHERITED_SAMPLE_TIME);
     ssSetOffsetTime(S, 0, 0.0);
     ssSetModelReferenceSampleTimeDefaultInheritance(S);
@@ -413,11 +422,8 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     real_T *q_1 = (real_T*)ssGetDWork(S, DWORK_Q_1);
     real_T *sign_delta_q = (real_T*)ssGetDWork(S, DWORK_SIGN_DELTA_Q);
 
-    /* Get sample time for time advancement */
-    real_T dt = ssGetSampleTime(S, 0);
-    if (dt <= 0.0) {
-        dt = 0.001; /* Default to 1kHz if inherited/continuous */
-    }
+    /* Fixed time step for time advancement (1kHz). */
+    const real_T dt = 0.001;
 
     /* Edge detection */
     real_T enable = enable_in[0];
@@ -466,9 +472,19 @@ static void mdlOutputs(SimStruct *S, int_T tid)
         *time += dt;
     }
     else {
-        /* Not active: output q_start (or last captured start) */
+        /* Not active: pass-through the current q_start input.
+         *
+         * IMPORTANT for codegen + function-call subsystems:
+         * This block may execute before any rising-edge "start" capture occurs.
+         * If we output the stored q_start (initialized to zeros), we can produce
+         * a one-cycle discontinuity (0 -> actual joints) at the start of control.
+         *
+         * Keeping the stored q_start synced with the input also ensures that a
+         * subsequent rising-edge capture starts from the latest upstream value.
+         */
         for (int i = 0; i < NUM_JOINTS; i++) {
-            q_d_out[i] = q_start[i];
+            q_start[i] = q_start_in[i];
+            q_d_out[i] = q_start_in[i];
         }
         *motion_finished_out = 0.0;
     }
