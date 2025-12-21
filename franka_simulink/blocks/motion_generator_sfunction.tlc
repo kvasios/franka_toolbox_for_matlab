@@ -4,6 +4,17 @@
 %%  Generates smooth synchronized joint-space trajectories.
 %%  Completely standalone - no external dependencies.
 %%
+%%  Inputs:
+%%    0. enable       (1x1)  - Rising edge triggers motion start
+%%    1. q_start      (7x1)  - Starting joint positions [rad]
+%%    2. q_goal       (7x1)  - Goal joint positions [rad]
+%%    3. speed_factor (1x1)  - Speed factor in range (0, 1]
+%%    4. dt           (1x1)  - Time step for trajectory advancement [s]
+%%
+%%  Outputs:
+%%    0. q_d             (7x1)  - Desired joint positions [rad]
+%%    1. motion_finished (1x1)  - 1 when motion complete
+%%
 %%  Algorithm based on:
 %%    Wisama Khalil and Etienne Dombre. 2002. Modeling, Identification and
 %%    Control of Robots (Kogan Page Science Paper edition).
@@ -264,13 +275,9 @@ static MotionGenState %<stateVarName>;
     %assign qStartAddr = LibBlockInputSignalAddr(1, "", "", 0)
     %assign qGoalAddr = LibBlockInputSignalAddr(2, "", "", 0)
     %assign speedFactorExpr = LibBlockInputSignal(3, "", "", 0)
+    %assign dtExpr = LibBlockInputSignal(4, "", "", 0)
     %assign qDAddr = LibBlockOutputSignalAddr(0, "", "", 0)
     %assign finishedAddr = LibBlockOutputSignalAddr(1, "", "", 0)
-    
-    %% Fixed time step (1kHz) - the block is designed to run inside the libfranka
-    %% 1kHz callback. Using a hardcoded dt makes the trajectory invariant to the
-    %% base model sample time (LibGetT() only advances at base rate, not callback rate).
-    %assign dt = 0.001
     
     /* Motion Generator Block */
     {
@@ -279,6 +286,7 @@ static MotionGenState %<stateVarName>;
         const double* q_start_in = %<qStartAddr>;
         const double* q_goal_in = %<qGoalAddr>;
         const double speed_factor = %<speedFactorExpr>;
+        const double dt = %<dtExpr>;
         double* q_d_out = %<qDAddr>;
         double* motion_finished_out = %<finishedAddr>;
         
@@ -298,9 +306,17 @@ static MotionGenState %<stateVarName>;
         
         /* Compute output */
         if (state->motion_active > 0.5) {
+            /* Advance time FIRST (like libfranka examples).
+             * This ensures trajectory time matches actual elapsed time.
+             * On first callback, dt is typically 0 (no previous callback),
+             * so time stays at 0 for the initial output.
+             */
+            if (dt > 0.0) {
+                state->time += dt;
+            }
+            
             const bool finished = motiongen_compute(state, state->time, q_d_out);
             *motion_finished_out = finished ? 1.0 : 0.0;
-            state->time += %<dt>;
         } else {
             /* Not active: pass-through the current q_start input.
              *

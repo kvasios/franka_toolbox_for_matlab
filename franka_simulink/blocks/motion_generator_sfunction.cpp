@@ -17,6 +17,7 @@
  *   1. q_start      (7x1)  - Starting joint positions [rad]
  *   2. q_goal       (7x1)  - Goal joint positions [rad]
  *   3. speed_factor (1x1)  - Speed factor in range (0, 1]
+ *   4. dt           (1x1)  - Time step for trajectory advancement [s]
  *
  * Outputs:
  *   0. q_d             (7x1)  - Desired joint positions [rad]
@@ -44,7 +45,8 @@
 #define IN_Q_START      1
 #define IN_Q_GOAL       2
 #define IN_SPEED_FACTOR 3
-#define NUM_INPUTS      4
+#define IN_DT           4
+#define NUM_INPUTS      5
 
 /* Output port indices */
 #define OUT_Q_D             0
@@ -274,6 +276,12 @@ static void mdlInitializeSizes(SimStruct *S)
     ssSetInputPortDirectFeedThrough(S, IN_SPEED_FACTOR, 1);
     ssSetInputPortRequiredContiguous(S, IN_SPEED_FACTOR, 1);
 
+    /* Port 4: dt (1x1) - Time step for trajectory advancement [s] */
+    ssSetInputPortWidth(S, IN_DT, 1);
+    ssSetInputPortDataType(S, IN_DT, SS_DOUBLE);
+    ssSetInputPortDirectFeedThrough(S, IN_DT, 1);
+    ssSetInputPortRequiredContiguous(S, IN_DT, 1);
+
     /* Output ports */
     if (!ssSetNumOutputPorts(S, NUM_OUTPUTS)) return;
 
@@ -404,6 +412,7 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     const real_T *q_start_in = ssGetInputPortRealSignal(S, IN_Q_START);
     const real_T *q_goal_in = ssGetInputPortRealSignal(S, IN_Q_GOAL);
     const real_T *speed_factor_in = ssGetInputPortRealSignal(S, IN_SPEED_FACTOR);
+    const real_T *dt_in = ssGetInputPortRealSignal(S, IN_DT);
 
     /* Get outputs */
     real_T *q_d_out = ssGetOutputPortRealSignal(S, OUT_Q_D);
@@ -422,9 +431,9 @@ static void mdlOutputs(SimStruct *S, int_T tid)
     real_T *q_1 = (real_T*)ssGetDWork(S, DWORK_Q_1);
     real_T *sign_delta_q = (real_T*)ssGetDWork(S, DWORK_SIGN_DELTA_Q);
 
-    /* Fixed time step for time advancement (1kHz). */
-    const real_T dt = 0.001;
-
+    /* Get time step from input */
+    real_T dt = dt_in[0];
+    
     /* Edge detection */
     real_T enable = enable_in[0];
     bool rising_edge = (enable > 0.5) && (*prevEnable <= 0.5);
@@ -460,6 +469,15 @@ static void mdlOutputs(SimStruct *S, int_T tid)
 
     /* Compute output */
     if (*motionActive > 0.5) {
+        /* Advance time FIRST (like libfranka examples).
+         * This ensures trajectory time matches actual elapsed time.
+         * On first callback, dt is typically 0 (no previous callback),
+         * so time stays at 0 for the initial output.
+         */
+        if (dt > 0.0) {
+            *time += dt;
+        }
+        
         /* Compute desired position at current time */
         bool finished = calculateDesiredValues(
             *time, q_start, delta_q,
@@ -467,9 +485,6 @@ static void mdlOutputs(SimStruct *S, int_T tid)
             q_d_out);
 
         *motion_finished_out = finished ? 1.0 : 0.0;
-
-        /* Advance time for next step */
-        *time += dt;
     }
     else {
         /* Not active: pass-through the current q_start input.
