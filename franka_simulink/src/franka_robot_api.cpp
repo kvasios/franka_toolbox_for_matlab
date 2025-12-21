@@ -754,7 +754,28 @@ void FrankaRobotContext::controlThreadFunc() {
     }
     
     // Publish boundary state BEFORE entering robot.control()
+    // This gives the Simulink outputs an initial state (though O_T_EE_c may be stale
+    // from a previous control session - the correct O_T_EE_c is only available inside
+    // robot.control() callbacks where libfranka initializes it properly).
     publishStateOnce(0.0);
+    
+    // DUAL-CALLBACK MODE DESIGN:
+    //
+    // In libfranka's dual-callback mode, the motion callback runs FIRST, then the
+    // torque callback. Both callbacks receive the same robot state.
+    //
+    // Our design: The Simulink controller runs in the MOTION callback (via executePreCallback).
+    // This ensures the controller has computed all outputs (O_T_EE_d, tau_J_d, etc.)
+    // BEFORE either callback reads from them.
+    //
+    // Flow per cycle:
+    //   1. Motion callback: executePreCallback() → copies state, runs Simulink controller
+    //                       → returns O_T_EE_d (or q_d, dq_d, etc.) from Simulink
+    //   2. Torque callback: just reads tau_J_d from Simulink (controller already ran)
+    //
+    // On the FIRST callback (period == 0), libfranka initializes state.O_T_EE_c to match
+    // the current measured pose. The Simulink controller sees this correct value and can
+    // use it for "capture on first sample" logic (e.g., initial_pose = O_T_EE_c).
 
     try {
         switch (control_mode_) {
@@ -1058,7 +1079,10 @@ franka::Torques FrankaRobotContext::dualTorqueCallback(
     const franka::RobotState& state,
     franka::Duration period) {
     
-    if (!executePreCallback(state, period)) {
+    // In dual-callback mode, the motion callback runs FIRST and executes the
+    // Simulink controller. The torque callback just reads the outputs.
+    // We only check for stop request here.
+    if (instance_->isStopRequested()) {
         return franka::MotionFinished(franka::Torques({0, 0, 0, 0, 0, 0, 0}));
     }
     
@@ -1075,7 +1099,9 @@ franka::JointPositions FrankaRobotContext::dualJointPositionMotionCallback(
     const franka::RobotState& state,
     franka::Duration period) {
     
-    if (instance_->isStopRequested()) {
+    // In dual-callback mode, the motion callback runs FIRST.
+    // We run the Simulink controller here so it can compute outputs for both callbacks.
+    if (!executePreCallback(state, period)) {
         return franka::MotionFinished(franka::JointPositions(state.q_d));
     }
     
@@ -1094,7 +1120,9 @@ franka::JointVelocities FrankaRobotContext::dualJointVelocityMotionCallback(
     const franka::RobotState& state,
     franka::Duration period) {
     
-    if (instance_->isStopRequested()) {
+    // In dual-callback mode, the motion callback runs FIRST.
+    // We run the Simulink controller here so it can compute outputs for both callbacks.
+    if (!executePreCallback(state, period)) {
         return franka::MotionFinished(franka::JointVelocities({0, 0, 0, 0, 0, 0, 0}));
     }
     
@@ -1111,7 +1139,9 @@ franka::CartesianPose FrankaRobotContext::dualCartesianPoseMotionCallback(
     const franka::RobotState& state,
     franka::Duration period) {
     
-    if (instance_->isStopRequested()) {
+    // In dual-callback mode, the motion callback runs FIRST.
+    // We run the Simulink controller here so it can compute outputs for both callbacks.
+    if (!executePreCallback(state, period)) {
         return franka::MotionFinished(franka::CartesianPose(state.O_T_EE_d, state.elbow_d));
     }
     
@@ -1121,13 +1151,23 @@ franka::CartesianPose FrankaRobotContext::dualCartesianPoseMotionCallback(
     } else {
         pose_cmd = state.O_T_EE_d;
     }
-    sanitizeArray(pose_cmd, "O_T_EE_d");
+    
+    // Validate transformation matrix - if invalid, use robot's current commanded pose
+    if (!isValidTransformationMatrix(pose_cmd)) {
+        static std::atomic<bool> warned{false};
+        if (!warned.exchange(true)) {
+            std::cerr << "FrankaRobotAPI: Invalid O_T_EE_d transformation matrix "
+                         "(likely zero-initialized). Using robot's current O_T_EE_c."
+                      << std::endl;
+        }
+        pose_cmd = state.O_T_EE_c;
+    }
     
     std::array<double, 2> elbow_cmd{};
     if (elbow_d_in_) {
         std::copy(elbow_d_in_, elbow_d_in_ + 2, elbow_cmd.begin());
     } else {
-        elbow_cmd = state.elbow_d;
+        elbow_cmd = state.elbow_c;
     }
     sanitizeArray(elbow_cmd, "elbow_d");
     
@@ -1138,7 +1178,9 @@ franka::CartesianVelocities FrankaRobotContext::dualCartesianVelocityMotionCallb
     const franka::RobotState& state,
     franka::Duration period) {
     
-    if (instance_->isStopRequested()) {
+    // In dual-callback mode, the motion callback runs FIRST.
+    // We run the Simulink controller here so it can compute outputs for both callbacks.
+    if (!executePreCallback(state, period)) {
         return franka::MotionFinished(franka::CartesianVelocities({0, 0, 0, 0, 0, 0}, state.elbow_d));
     }
     
@@ -1152,7 +1194,7 @@ franka::CartesianVelocities FrankaRobotContext::dualCartesianVelocityMotionCallb
     if (elbow_d_in_) {
         std::copy(elbow_d_in_, elbow_d_in_ + 2, elbow_cmd.begin());
     } else {
-        elbow_cmd = state.elbow_d;
+        elbow_cmd = state.elbow_c;
     }
     sanitizeArray(elbow_cmd, "elbow_d");
     
