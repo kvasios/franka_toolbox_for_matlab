@@ -5,20 +5,24 @@
  * It outputs a function-call signal to trigger an external controller subsystem.
  *
  * Parameters:
- *   control_mode - Control mode selection (0-8):
+ *   control_mode    - Control mode selection (0-8)
+ *   rt_priority     - Real-time thread priority (0=disabled, 1-99 for SCHED_FIFO)
+ *   rt_cpu_affinity - CPU core affinity (-1=no pinning, 0+ = specific core)
+ *   rt_lock_memory  - Lock memory with mlockall (0=no, 1=yes)
  *
- *     Single-callback modes (robot's internal controller for non-torque):
- *       0: Torques             - Direct torque control
- *       1: JointPositions      - Joint position with internal impedance
- *       2: JointVelocities     - Joint velocity with internal impedance
- *       3: CartesianPose       - Cartesian pose with internal impedance
- *       4: CartesianVelocities - Cartesian velocity with internal impedance
+ * Control Mode Values:
+ *   Single-callback modes (robot's internal controller for non-torque):
+ *     0: Torques             - Direct torque control
+ *     1: JointPositions      - Joint position with internal impedance
+ *     2: JointVelocities     - Joint velocity with internal impedance
+ *     3: CartesianPose       - Cartesian pose with internal impedance
+ *     4: CartesianVelocities - Cartesian velocity with internal impedance
  *
- *     Dual-callback modes (user torque + motion generator):
- *       5: Torques + JointPositions      - External torque + joint position motion gen
- *       6: Torques + JointVelocities     - External torque + joint velocity motion gen
- *       7: Torques + CartesianPose       - External torque + Cartesian pose motion gen
- *       8: Torques + CartesianVelocities - External torque + Cartesian velocity motion gen
+ *   Dual-callback modes (user torque + motion generator):
+ *     5: Torques + JointPositions      - External torque + joint position motion gen
+ *     6: Torques + JointVelocities     - External torque + joint velocity motion gen
+ *     7: Torques + CartesianPose       - External torque + Cartesian pose motion gen
+ *     8: Torques + CartesianVelocities - External torque + Cartesian velocity motion gen
  *
  * Inputs (mode-dependent):
  *
@@ -73,8 +77,11 @@
 #include <cstring>
 
 /* Parameters */
-#define NUM_PARAMS          1
-#define PARAM_CONTROL_MODE  0
+#define NUM_PARAMS              4
+#define PARAM_CONTROL_MODE      0
+#define PARAM_RT_PRIORITY       1   /* RT thread priority (0=disabled, 1-99 for SCHED_FIFO) */
+#define PARAM_RT_CPU_AFFINITY   2   /* CPU core affinity (-1=no pinning, 0+ = specific core) */
+#define PARAM_RT_LOCK_MEMORY    3   /* Lock memory with mlockall (0=no, 1=yes) */
 
 /* Control mode enum (matches block mask dropdown order)
  * 
@@ -139,7 +146,7 @@ enum FrankaControlMode {
  * ======================================================================== */
 static void mdlInitializeSizes(SimStruct *S)
 {
-    /* One parameter: control_mode */
+    /* Parameters: control_mode, rt_priority, rt_cpu_affinity, rt_lock_memory */
     ssSetNumSFcnParams(S, NUM_PARAMS);
     
 #if defined(MATLAB_MEX_FILE)
@@ -148,8 +155,11 @@ static void mdlInitializeSizes(SimStruct *S)
     }
 #endif
 
-    /* Parameter is not tunable at runtime */
+    /* Parameters are not tunable at runtime */
     ssSetSFcnParamTunable(S, PARAM_CONTROL_MODE, SS_PRM_NOT_TUNABLE);
+    ssSetSFcnParamTunable(S, PARAM_RT_PRIORITY, SS_PRM_NOT_TUNABLE);
+    ssSetSFcnParamTunable(S, PARAM_RT_CPU_AFFINITY, SS_PRM_NOT_TUNABLE);
+    ssSetSFcnParamTunable(S, PARAM_RT_LOCK_MEMORY, SS_PRM_NOT_TUNABLE);
     
     /* Read control mode parameter */
     int control_mode = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_CONTROL_MODE)));
@@ -523,11 +533,17 @@ static void mdlTerminate(SimStruct *S)
 #define MDL_RTW
 static void mdlRTW(SimStruct *S)
 {
-    /* Write control_mode parameter to RTW file for TLC access */
+    /* Write parameters to RTW file for TLC access */
     int control_mode = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_CONTROL_MODE)));
+    int rt_priority = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_RT_PRIORITY)));
+    int rt_cpu_affinity = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_RT_CPU_AFFINITY)));
+    int rt_lock_memory = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_RT_LOCK_MEMORY)));
     
-    if (!ssWriteRTWParamSettings(S, 1,
-            SSWRITE_VALUE_NUM, "ControlMode", (real_T)control_mode)) {
+    if (!ssWriteRTWParamSettings(S, 4,
+            SSWRITE_VALUE_NUM, "ControlMode", (real_T)control_mode,
+            SSWRITE_VALUE_NUM, "RtPriority", (real_T)rt_priority,
+            SSWRITE_VALUE_NUM, "RtCpuAffinity", (real_T)rt_cpu_affinity,
+            SSWRITE_VALUE_NUM, "RtLockMemory", (real_T)rt_lock_memory)) {
         return; /* Error message already set by ssWriteRTWParamSettings */
     }
 }

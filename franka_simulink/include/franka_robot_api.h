@@ -367,6 +367,14 @@ public:
     void setControlMode(FrankaControlMode mode);
     
     /**
+     * @brief Configure real-time thread settings (PREEMPT_RT)
+     * @param priority Thread priority for SCHED_FIFO (0=disabled, 1-99)
+     * @param cpu_affinity CPU core to pin thread to (-1=no pinning, 0+=specific core)
+     * @param lock_memory Whether to lock memory with mlockall
+     */
+    void setRealtimeConfig(int priority, int cpu_affinity, bool lock_memory);
+    
+    /**
      * @brief Shutdown and cleanup
      */
     void shutdown();
@@ -451,6 +459,11 @@ private:
     
     // Control mode
     FrankaControlMode control_mode_{FrankaControlMode::Torques};
+    
+    // Real-time thread configuration (PREEMPT_RT)
+    int rt_priority_{98};        ///< SCHED_FIFO priority (0=disabled, 1-99)
+    int rt_cpu_affinity_{-1};    ///< CPU core (-1=no pinning)
+    bool rt_lock_memory_{true};  ///< Lock memory with mlockall
     
     // Control state
     std::atomic<bool> running_{false};

@@ -3,9 +3,15 @@
 
 #include "franka_robot_api.h"
 
+#include <cerrno>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+
+// Real-time thread configuration for PREEMPT_RT
+#include <pthread.h>
+#include <sched.h>
+#include <sys/mman.h>
 
 // ============================================================================
 // FrankaRobotManager - Static Members
@@ -583,6 +589,12 @@ void FrankaRobotContext::setControlMode(FrankaControlMode mode) {
     control_mode_ = mode;
 }
 
+void FrankaRobotContext::setRealtimeConfig(int priority, int cpu_affinity, bool lock_memory) {
+    rt_priority_ = priority;
+    rt_cpu_affinity_ = cpu_affinity;
+    rt_lock_memory_ = lock_memory;
+}
+
 void FrankaRobotContext::shutdown() {
     if (running_) {
         requestStop();
@@ -740,10 +752,82 @@ void FrankaRobotContext::publishStateOnce(double dt_sec_override) {
 }
 
 // ============================================================================
+// Real-Time Thread Configuration (PREEMPT_RT)
+// ============================================================================
+
+/**
+ * @brief Configure current thread for real-time operation under PREEMPT_RT
+ * 
+ * This function:
+ *   1. Optionally locks all memory pages (prevents page faults)
+ *   2. Sets SCHED_FIFO scheduling policy with specified priority
+ *   3. Optionally pins thread to a specific CPU core for cache locality
+ * 
+ * @param priority Thread priority for SCHED_FIFO (0=disabled, 1-99)
+ * @param cpu_affinity CPU core to pin to (-1=no pinning, 0+=specific core)
+ * @param lock_memory Whether to lock memory with mlockall
+ * @note Requires CAP_SYS_NICE capability or root privileges for RT scheduling
+ * @return true if all requested RT configuration succeeded, false otherwise
+ */
+static bool configureRealtimeThread(int priority, int cpu_affinity, bool lock_memory) {
+    bool success = true;
+    
+    // 1. Lock all memory pages to prevent page faults during control
+    //    MCL_CURRENT: Lock all pages currently mapped
+    //    MCL_FUTURE:  Lock pages mapped in the future
+    if (lock_memory) {
+        if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+            std::cerr << "FrankaRobotContext: mlockall() failed (errno=" << errno 
+                      << "). Memory may not be locked. Consider running with elevated privileges."
+                      << std::endl;
+            success = false;
+        }
+    }
+    
+    // 2. Set SCHED_FIFO scheduling policy with specified priority
+    //    Priority 0 means disabled (stay with default SCHED_OTHER)
+    if (priority > 0) {
+        struct sched_param param;
+        param.sched_priority = priority;
+        
+        if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
+            std::cerr << "FrankaRobotContext: pthread_setschedparam(SCHED_FIFO, " << priority 
+                      << ") failed (errno=" << errno << "). Running without RT priority. "
+                      << "Consider running with elevated privileges or setting CAP_SYS_NICE."
+                      << std::endl;
+            success = false;
+        }
+    }
+    
+    // 3. Set CPU affinity to pin thread to a specific core
+    //    This improves cache locality and reduces migration overhead.
+    //    -1 means no pinning (let scheduler decide)
+    if (cpu_affinity >= 0) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(cpu_affinity, &cpuset);
+        
+        if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0) {
+            // CPU affinity failure is less critical - just warn
+            std::cerr << "FrankaRobotContext: pthread_setaffinity_np(core " << cpu_affinity 
+                      << ") failed (errno=" << errno << "). Thread may migrate between cores." 
+                      << std::endl;
+            // Don't set success = false; affinity is a nice-to-have
+        }
+    }
+    
+    return success;
+}
+
+// ============================================================================
 // Control Thread
 // ============================================================================
 
 void FrankaRobotContext::controlThreadFunc() {
+    // Configure thread for real-time operation (PREEMPT_RT)
+    // This must be done from within the thread itself
+    configureRealtimeThread(rt_priority_, rt_cpu_affinity_, rt_lock_memory_);
+    
     // Get rate limiter and cutoff frequency from settings
     bool limit_rate = true;
     double cutoff_frequency = 100.0;

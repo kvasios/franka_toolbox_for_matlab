@@ -64,8 +64,11 @@
 {
     %assign ctxName = "franka_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
     
-    %% Read control mode from S-function parameter settings
+    %% Read S-function parameters
     %assign controlMode = CAST("Number", SFcnParamSettings.ControlMode)
+    %assign rtPriority = CAST("Number", SFcnParamSettings.RtPriority)
+    %assign rtCpuAffinity = CAST("Number", SFcnParamSettings.RtCpuAffinity)
+    %assign rtLockMemory = CAST("Number", SFcnParamSettings.RtLockMemory)
     
     /* NOTE:
      * Do NOT connect to the robot in Start().
@@ -82,6 +85,13 @@
     
     /* Set control mode: %<controlMode> */
     %<ctxName>.setControlMode(static_cast<FrankaControlMode>(%<controlMode>));
+    
+    /* Configure real-time thread settings (PREEMPT_RT):
+     *   Priority: %<rtPriority> (0=disabled, 1-99 for SCHED_FIFO)
+     *   CPU Affinity: %<rtCpuAffinity> (-1=no pinning)
+     *   Lock Memory: %<rtLockMemory> (0=no, 1=yes)
+     */
+    %<ctxName>.setRealtimeConfig(%<rtPriority>, %<rtCpuAffinity>, %<rtLockMemory> != 0);
 
     /* Resolve the function-call subsystem entry-point we should invoke from the
      * libfranka 1kHz callback.
