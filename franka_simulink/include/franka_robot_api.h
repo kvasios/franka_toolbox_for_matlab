@@ -296,6 +296,109 @@ public:
     // Public so contexts can compare IPs consistently
     static std::string sanitizeIP(const std::string& ip);
     
+    // ========================================================================
+    // Model Computation API (for standalone model blocks)
+    // 
+    // These methods provide access to libfranka's Model class for computing
+    // dynamics and kinematics from arbitrary joint configurations.
+    // 
+    // Unlike the FrankaRobotContext methods which compute from current state,
+    // these accept explicit parameters for use in planning, simulation, etc.
+    // 
+    // Thread Safety: These are pure computations that don't access the robot
+    // network, so they're safe to call from any thread (including during
+    // active control).
+    // ========================================================================
+    
+    /**
+     * @brief Compute mass matrix M(q) for given joint configuration
+     * @param ip Robot IP address (for model lookup/creation)
+     * @param q Joint positions [rad] (7x1)
+     * @param I_total Total load inertia [kg*m^2] (3x3 column-major as 9x1)
+     * @param m_total Total load mass [kg]
+     * @param F_x_Ctotal Total load CoM in flange frame [m] (3x1)
+     * @param[out] mass_out Mass matrix output (7x7 column-major as 49x1)
+     * @return true if computation succeeded
+     */
+    static bool computeMass(const std::string& ip,
+                            const double* q,
+                            const double* I_total,
+                            double m_total,
+                            const double* F_x_Ctotal,
+                            double* mass_out);
+    
+    /**
+     * @brief Compute Coriolis force vector c(q,dq)
+     * @param ip Robot IP address
+     * @param q Joint positions [rad] (7x1)
+     * @param dq Joint velocities [rad/s] (7x1)
+     * @param I_total Total load inertia [kg*m^2] (3x3 column-major as 9x1)
+     * @param m_total Total load mass [kg]
+     * @param F_x_Ctotal Total load CoM in flange frame [m] (3x1)
+     * @param[out] coriolis_out Coriolis vector output (7x1) [Nm]
+     * @return true if computation succeeded
+     */
+    static bool computeCoriolis(const std::string& ip,
+                                const double* q,
+                                const double* dq,
+                                const double* I_total,
+                                double m_total,
+                                const double* F_x_Ctotal,
+                                double* coriolis_out);
+    
+    /**
+     * @brief Compute gravity vector g(q)
+     * @param ip Robot IP address
+     * @param q Joint positions [rad] (7x1)
+     * @param m_total Total load mass [kg]
+     * @param F_x_Ctotal Total load CoM in flange frame [m] (3x1)
+     * @param gravity_earth Earth's gravity vector [m/s^2] (3x1), default {0,0,-9.81}
+     * @param[out] gravity_out Gravity vector output (7x1) [Nm]
+     * @return true if computation succeeded
+     */
+    static bool computeGravity(const std::string& ip,
+                               const double* q,
+                               double m_total,
+                               const double* F_x_Ctotal,
+                               const double* gravity_earth,
+                               double* gravity_out);
+    
+    /**
+     * @brief Compute Jacobian (zero or body) for given frame
+     * @param ip Robot IP address
+     * @param jacobian_type 0 = zeroJacobian (base frame), 1 = bodyJacobian (body frame)
+     * @param frame Frame index (0-9: Joint1-7, Flange, EndEffector, Stiffness)
+     * @param q Joint positions [rad] (7x1)
+     * @param F_T_EE End effector in flange frame (4x4 column-major as 16x1)
+     * @param EE_T_K Stiffness frame in EE frame (4x4 column-major as 16x1)
+     * @param[out] jacobian_out Jacobian output (6x7 column-major as 42x1)
+     * @return true if computation succeeded
+     */
+    static bool computeJacobian(const std::string& ip,
+                                int jacobian_type,
+                                int frame,
+                                const double* q,
+                                const double* F_T_EE,
+                                const double* EE_T_K,
+                                double* jacobian_out);
+    
+    /**
+     * @brief Compute forward kinematics pose for given frame
+     * @param ip Robot IP address
+     * @param frame Frame index (0-9: Joint1-7, Flange, EndEffector, Stiffness)
+     * @param q Joint positions [rad] (7x1)
+     * @param F_T_EE End effector in flange frame (4x4 column-major as 16x1)
+     * @param EE_T_K Stiffness frame in EE frame (4x4 column-major as 16x1)
+     * @param[out] pose_out Pose output (4x4 column-major as 16x1)
+     * @return true if computation succeeded
+     */
+    static bool computePose(const std::string& ip,
+                            int frame,
+                            const double* q,
+                            const double* F_T_EE,
+                            const double* EE_T_K,
+                            double* pose_out);
+    
 private:
     static std::unordered_map<std::string, std::unique_ptr<FrankaRobotInstance>> instances_;
     static std::mutex mutex_;

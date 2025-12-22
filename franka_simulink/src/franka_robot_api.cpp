@@ -553,6 +553,228 @@ bool FrankaRobotManager::isControlRunning(const std::string& ip) {
 }
 
 // ============================================================================
+// Model Computation API (for standalone model blocks)
+// ============================================================================
+
+bool FrankaRobotManager::computeMass(const std::string& ip,
+                                      const double* q,
+                                      const double* I_total,
+                                      double m_total,
+                                      const double* F_x_Ctotal,
+                                      double* mass_out) {
+    FrankaRobotInstance* instance = nullptr;
+    try {
+        instance = getOrCreate(ip);
+    } catch (const franka::Exception& e) {
+        std::cerr << "FrankaRobotManager::computeMass: Failed to connect to " << ip 
+                  << ": " << e.what() << std::endl;
+        return false;
+    }
+    
+    if (!instance) {
+        return false;
+    }
+    
+    // Convert inputs to std::array
+    std::array<double, 7> q_arr;
+    std::array<double, 9> I_total_arr;
+    std::array<double, 3> F_x_Ctotal_arr;
+    
+    std::copy(q, q + 7, q_arr.begin());
+    std::copy(I_total, I_total + 9, I_total_arr.begin());
+    std::copy(F_x_Ctotal, F_x_Ctotal + 3, F_x_Ctotal_arr.begin());
+    
+    // Compute mass matrix
+    auto M = instance->model().mass(q_arr, I_total_arr, m_total, F_x_Ctotal_arr);
+    
+    // Copy to output
+    std::copy(M.begin(), M.end(), mass_out);
+    
+    return true;
+}
+
+bool FrankaRobotManager::computeCoriolis(const std::string& ip,
+                                          const double* q,
+                                          const double* dq,
+                                          const double* I_total,
+                                          double m_total,
+                                          const double* F_x_Ctotal,
+                                          double* coriolis_out) {
+    FrankaRobotInstance* instance = nullptr;
+    try {
+        instance = getOrCreate(ip);
+    } catch (const franka::Exception& e) {
+        std::cerr << "FrankaRobotManager::computeCoriolis: Failed to connect to " << ip 
+                  << ": " << e.what() << std::endl;
+        return false;
+    }
+    
+    if (!instance) {
+        return false;
+    }
+    
+    // Convert inputs to std::array
+    std::array<double, 7> q_arr;
+    std::array<double, 7> dq_arr;
+    std::array<double, 9> I_total_arr;
+    std::array<double, 3> F_x_Ctotal_arr;
+    
+    std::copy(q, q + 7, q_arr.begin());
+    std::copy(dq, dq + 7, dq_arr.begin());
+    std::copy(I_total, I_total + 9, I_total_arr.begin());
+    std::copy(F_x_Ctotal, F_x_Ctotal + 3, F_x_Ctotal_arr.begin());
+    
+    // Compute Coriolis vector
+    auto c = instance->model().coriolis(q_arr, dq_arr, I_total_arr, m_total, F_x_Ctotal_arr);
+    
+    // Copy to output
+    std::copy(c.begin(), c.end(), coriolis_out);
+    
+    return true;
+}
+
+bool FrankaRobotManager::computeGravity(const std::string& ip,
+                                         const double* q,
+                                         double m_total,
+                                         const double* F_x_Ctotal,
+                                         const double* gravity_earth,
+                                         double* gravity_out) {
+    FrankaRobotInstance* instance = nullptr;
+    try {
+        instance = getOrCreate(ip);
+    } catch (const franka::Exception& e) {
+        std::cerr << "FrankaRobotManager::computeGravity: Failed to connect to " << ip 
+                  << ": " << e.what() << std::endl;
+        return false;
+    }
+    
+    if (!instance) {
+        return false;
+    }
+    
+    // Convert inputs to std::array
+    std::array<double, 7> q_arr;
+    std::array<double, 3> F_x_Ctotal_arr;
+    std::array<double, 3> gravity_earth_arr;
+    
+    std::copy(q, q + 7, q_arr.begin());
+    std::copy(F_x_Ctotal, F_x_Ctotal + 3, F_x_Ctotal_arr.begin());
+    
+    // Use provided gravity or default
+    if (gravity_earth) {
+        std::copy(gravity_earth, gravity_earth + 3, gravity_earth_arr.begin());
+    } else {
+        gravity_earth_arr = {{0.0, 0.0, -9.81}};
+    }
+    
+    // Compute gravity vector
+    auto g = instance->model().gravity(q_arr, m_total, F_x_Ctotal_arr, gravity_earth_arr);
+    
+    // Copy to output
+    std::copy(g.begin(), g.end(), gravity_out);
+    
+    return true;
+}
+
+bool FrankaRobotManager::computeJacobian(const std::string& ip,
+                                          int jacobian_type,
+                                          int frame,
+                                          const double* q,
+                                          const double* F_T_EE,
+                                          const double* EE_T_K,
+                                          double* jacobian_out) {
+    FrankaRobotInstance* instance = nullptr;
+    try {
+        instance = getOrCreate(ip);
+    } catch (const franka::Exception& e) {
+        std::cerr << "FrankaRobotManager::computeJacobian: Failed to connect to " << ip 
+                  << ": " << e.what() << std::endl;
+        return false;
+    }
+    
+    if (!instance) {
+        return false;
+    }
+    
+    // Validate frame index
+    if (frame < 0 || frame > 9) {
+        std::cerr << "FrankaRobotManager::computeJacobian: Invalid frame index " << frame << std::endl;
+        return false;
+    }
+    
+    // Convert inputs to std::array
+    std::array<double, 7> q_arr;
+    std::array<double, 16> F_T_EE_arr;
+    std::array<double, 16> EE_T_K_arr;
+    
+    std::copy(q, q + 7, q_arr.begin());
+    std::copy(F_T_EE, F_T_EE + 16, F_T_EE_arr.begin());
+    std::copy(EE_T_K, EE_T_K + 16, EE_T_K_arr.begin());
+    
+    // Convert frame index to enum
+    franka::Frame franka_frame = static_cast<franka::Frame>(frame);
+    
+    // Compute Jacobian (type 0 = zeroJacobian, type 1 = bodyJacobian)
+    std::array<double, 42> J;
+    if (jacobian_type == 0) {
+        J = instance->model().zeroJacobian(franka_frame, q_arr, F_T_EE_arr, EE_T_K_arr);
+    } else {
+        J = instance->model().bodyJacobian(franka_frame, q_arr, F_T_EE_arr, EE_T_K_arr);
+    }
+    
+    // Copy to output
+    std::copy(J.begin(), J.end(), jacobian_out);
+    
+    return true;
+}
+
+bool FrankaRobotManager::computePose(const std::string& ip,
+                                      int frame,
+                                      const double* q,
+                                      const double* F_T_EE,
+                                      const double* EE_T_K,
+                                      double* pose_out) {
+    FrankaRobotInstance* instance = nullptr;
+    try {
+        instance = getOrCreate(ip);
+    } catch (const franka::Exception& e) {
+        std::cerr << "FrankaRobotManager::computePose: Failed to connect to " << ip 
+                  << ": " << e.what() << std::endl;
+        return false;
+    }
+    
+    if (!instance) {
+        return false;
+    }
+    
+    // Validate frame index
+    if (frame < 0 || frame > 9) {
+        std::cerr << "FrankaRobotManager::computePose: Invalid frame index " << frame << std::endl;
+        return false;
+    }
+    
+    // Convert inputs to std::array
+    std::array<double, 7> q_arr;
+    std::array<double, 16> F_T_EE_arr;
+    std::array<double, 16> EE_T_K_arr;
+    
+    std::copy(q, q + 7, q_arr.begin());
+    std::copy(F_T_EE, F_T_EE + 16, F_T_EE_arr.begin());
+    std::copy(EE_T_K, EE_T_K + 16, EE_T_K_arr.begin());
+    
+    // Convert frame index to enum
+    franka::Frame franka_frame = static_cast<franka::Frame>(frame);
+    
+    // Compute pose
+    auto pose = instance->model().pose(franka_frame, q_arr, F_T_EE_arr, EE_T_K_arr);
+    
+    // Copy to output
+    std::copy(pose.begin(), pose.end(), pose_out);
+    
+    return true;
+}
+
+// ============================================================================
 // FrankaRobotContext - Implementation
 // ============================================================================
 

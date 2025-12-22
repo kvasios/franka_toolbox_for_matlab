@@ -1,0 +1,81 @@
+%% Copyright (c) 2025 Franka Robotics GmbH
+%% Franka Robot Model: Jacobian Computation
+%%
+%% Computes the 6x7 Jacobian matrix using libfranka's Model class
+%% via FrankaRobotManager. The robot connection is shared with other
+%% blocks targeting the same IP.
+%%
+%% Works both standalone and under function-called subsystems.
+%%
+%implements "franka_robot_model_jacobian" "C"
+
+%% ========================================================================
+%% BlockTypeSetup - Called once per block type
+%% ========================================================================
+%function BlockTypeSetup(block, system) void
+    %<LibAddToCommonIncludes("franka_robot_api.h")>
+    %<LibAddToCommonIncludes("<cstring>")>
+%endfunction
+
+%% ========================================================================
+%% Start - Initialization code
+%% ========================================================================
+%function Start(block, system) Output
+{
+    /* franka_robot_model_jacobian: Initialization
+     * 
+     * The robot connection is managed lazily by FrankaRobotManager.
+     */
+}
+%endfunction
+
+%% ========================================================================
+%% Outputs - Compute Jacobian
+%% ========================================================================
+%function Outputs(block, system) Output
+{
+    %% Extract parameters
+    %assign robot_ip = FEVAL("erase", ParamSettings.robot_ip, "'")
+    %assign robot_ip = FEVAL("strtrim", robot_ip)
+    %assign jacobian_type = ParamSettings.jacobian_type[0][0]
+    %assign frame = ParamSettings.frame[0][0]
+    
+    /* franka_robot_model_jacobian: Compute Jacobian matrix
+     * Robot IP: %<robot_ip>
+     * Jacobian type: %<jacobian_type> (0=zero/base, 1=body)
+     * Frame: %<frame> (0-6=Joint1-7, 7=Flange, 8=EndEffector, 9=Stiffness)
+     * 
+     * Inputs:
+     *   Port 0: q (7x1) - Joint positions
+     *   Port 1: F_T_EE (16x1) - End effector in flange frame
+     *   Port 2: EE_T_K (16x1) - Stiffness frame in EE frame
+     * 
+     * Output:
+     *   Port 0: jacobian (6x7) - Jacobian matrix
+     */
+    
+    const double* q = %<LibBlockInputSignalAddr(0, "", "", 0)>;
+    const double* F_T_EE = %<LibBlockInputSignalAddr(1, "", "", 0)>;
+    const double* EE_T_K = %<LibBlockInputSignalAddr(2, "", "", 0)>;
+    double* jacobian_out = %<LibBlockOutputSignalAddr(0, "", "", 0)>;
+    
+    /* Compute Jacobian via FrankaRobotManager */
+    if (!FrankaRobotManager::computeJacobian("%<robot_ip>",
+                                              %<jacobian_type>,
+                                              %<frame>,
+                                              q, F_T_EE, EE_T_K,
+                                              jacobian_out)) {
+        /* Connection failed or computation error - zero output */
+        std::memset(jacobian_out, 0, 42 * sizeof(double));
+    }
+}
+%endfunction
+
+%% ========================================================================
+%% Terminate - Cleanup
+%% ========================================================================
+%function Terminate(block, system) Output
+{
+    /* franka_robot_model_jacobian: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
+}
+%endfunction
