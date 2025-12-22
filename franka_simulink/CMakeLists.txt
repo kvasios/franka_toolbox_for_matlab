@@ -30,12 +30,23 @@ matlab_add_mex(
 # ============================================================================
 # Gripper S-Function (for Simulink simulation)
 # ============================================================================
-# Async gripper control with command worker thread.
+# Async finger gripper control with command worker thread.
 # Commands (homing, grasp, move, stop) triggered by rising edges.
 #
 matlab_add_mex(
      NAME franka_gripper_sfunction
      SRC "blocks/franka_gripper_sfunction.cpp"
+)
+
+# ============================================================================
+# Vacuum Gripper S-Function (for Simulink simulation)
+# ============================================================================
+# Async vacuum gripper control with command worker thread.
+# Commands (vacuum, drop_off, stop) triggered by rising edges.
+#
+matlab_add_mex(
+     NAME franka_vacuum_gripper_sfunction
+     SRC "blocks/franka_vacuum_gripper_sfunction.cpp"
 )
 
 # ============================================================================

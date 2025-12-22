@@ -19,6 +19,8 @@ function makecfg(objBuildInfo)
             fullfile(franka_installation_path_get(), 'franka_simulink', 'src'));
         addSourceFiles(objBuildInfo, 'franka_gripper_api.cpp', ...
             fullfile(franka_installation_path_get(), 'franka_simulink', 'src'));
+        addSourceFiles(objBuildInfo, 'franka_vacuum_gripper_api.cpp', ...
+            fullfile(franka_installation_path_get(), 'franka_simulink', 'src'));
 
         % Handle installation path for Windows
         installation_path = franka_installation_path_get();
@@ -75,6 +77,8 @@ function makecfg(objBuildInfo)
         addSourceFiles(objBuildInfo, 'franka_robot_api.cpp', ...
             fullfile(franka_installation_path_get(), 'franka_simulink', 'src'));
         addSourceFiles(objBuildInfo, 'franka_gripper_api.cpp', ...
+            fullfile(franka_installation_path_get(), 'franka_simulink', 'src'));
+        addSourceFiles(objBuildInfo, 'franka_vacuum_gripper_api.cpp', ...
             fullfile(franka_installation_path_get(), 'franka_simulink', 'src'));
 
         if franka_libfranka_system_installation_get()

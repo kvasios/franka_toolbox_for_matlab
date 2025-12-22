@@ -1,0 +1,167 @@
+%%  Copyright (c) 2025 Franka Robotics GmbH
+%%  Franka Vacuum Gripper Block - TLC Implementation
+%%
+%%  This TLC generates code for the Franka vacuum gripper S-function.
+%%  Commands are executed asynchronously via a worker thread.
+%%
+%%  Inputs:
+%%    0. robot_ip    - Robot IP as ASCII chars
+%%    1. command     - Command parameters bus (FrankaVacuumGripperCommandBus)
+%%    2. vacuum      - Trigger: vacuum command
+%%    3. drop_off    - Trigger: drop off command
+%%    4. stop        - Trigger: stop command
+%%    5. read_state  - Trigger: force state read
+%%
+%%  Outputs:
+%%    0. gripper_state - Vacuum gripper state bus (FrankaVacuumGripperStateBus)
+%%
+%implements "franka_vacuum_gripper_sfunction" "C"
+
+%% ========================================================================
+%% BlockTypeSetup - Called once per block type
+%% ========================================================================
+%function BlockTypeSetup(block, system) void
+    %<LibAddToCommonIncludes("franka_vacuum_gripper_api.h")>
+    %<LibAddToCommonIncludes("franka_simulink_types.h")>
+    %<LibAddToCommonIncludes("<cstring>")>
+    %<LibAddToCommonIncludes("<iostream>")>
+%endfunction
+
+%% ========================================================================
+%% BlockInstanceSetup - Called once per block instance
+%% ========================================================================
+%function BlockInstanceSetup(block, system) Output
+{
+    %openfile buffer
+    
+    /* Franka Vacuum Gripper Context (per block instance). */
+    %assign ctxName = "franka_vacuum_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    FrankaVacuumGripperContext %<ctxName>;
+
+    %closefile buffer
+    %<LibCacheGlobalPrmData(buffer)>
+}
+%endfunction
+
+%% ========================================================================
+%% Start - Initialization code
+%% ========================================================================
+%function Start(block, system) Output
+{
+    %assign ctxName = "franka_vacuum_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    /* Wire output pointer to Simulink signal */
+    %assign stateExpr = "%<LibBlockOutputSignalAddr(0, "", "", 0)>"
+    
+    %<ctxName>.setStateOutputPointer(
+        reinterpret_cast<FrankaVacuumGripperStateBus*>(%<stateExpr>)
+    );
+    
+    /* Wire command input pointer */
+    %assign commandExpr = "%<LibBlockInputSignalAddr(1, "", "", 0)>"
+    
+    %<ctxName>.setCommandInputPointer(
+        reinterpret_cast<const FrankaVacuumGripperCommandBus*>(%<commandExpr>)
+    );
+    
+    /* Initialize DWork state (for edge detection). */
+    %<LibBlockDWork(PrevVacuum, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevDropOff, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevStop, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevReadState, "", "", 0)> = 0.0;
+}
+%endfunction
+
+%% ========================================================================
+%% Outputs - Called by Simulink scheduler
+%% ========================================================================
+%function Outputs(block, system) Output
+{
+    %assign ctxName = "franka_vacuum_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    /* Franka Vacuum Gripper Block */
+    
+    /* Get trigger inputs */
+    real_T vacuum_cmd = %<LibBlockInputSignal(2, "", "", 0)>;
+    real_T drop_off = %<LibBlockInputSignal(3, "", "", 0)>;
+    real_T stop_cmd = %<LibBlockInputSignal(4, "", "", 0)>;
+    real_T read_state = %<LibBlockInputSignal(5, "", "", 0)>;
+    
+    /* Get previous values for edge detection */
+    real_T prev_vacuum = %<LibBlockDWork(PrevVacuum, "", "", 0)>;
+    real_T prev_drop_off = %<LibBlockDWork(PrevDropOff, "", "", 0)>;
+    real_T prev_stop = %<LibBlockDWork(PrevStop, "", "", 0)>;
+    real_T prev_read_state = %<LibBlockDWork(PrevReadState, "", "", 0)>;
+    
+    /* Detect rising edges */
+    real_T vacuum_rising = ((vacuum_cmd > 0.5) && (prev_vacuum <= 0.5)) ? 1.0 : 0.0;
+    real_T dropoff_rising = ((drop_off > 0.5) && (prev_drop_off <= 0.5)) ? 1.0 : 0.0;
+    real_T stop_rising = ((stop_cmd > 0.5) && (prev_stop <= 0.5)) ? 1.0 : 0.0;
+    real_T read_state_rising = ((read_state > 0.5) && (prev_read_state <= 0.5)) ? 1.0 : 0.0;
+    
+    /* Update previous values for next step */
+    %<LibBlockDWork(PrevVacuum, "", "", 0)> = vacuum_cmd;
+    %<LibBlockDWork(PrevDropOff, "", "", 0)> = drop_off;
+    %<LibBlockDWork(PrevStop, "", "", 0)> = stop_cmd;
+    %<LibBlockDWork(PrevReadState, "", "", 0)> = read_state;
+    
+    /* Helper: Extract robot IP from input port */
+    auto extractRobotIP = [&]() -> std::string {
+        const uint8_T* robot_ip_u8 = reinterpret_cast<const uint8_T*>(
+            %<LibBlockInputSignalAddr(0, "", "", 0)>
+        );
+        char robot_ip_buf[17];
+        std::memcpy(robot_ip_buf, robot_ip_u8, 16);
+        robot_ip_buf[16] = '\0';
+
+        /* Trim trailing whitespace. */
+        int ip_len = 0;
+        while (ip_len < 16 && robot_ip_buf[ip_len] != '\0') {
+            ++ip_len;
+        }
+        while (ip_len > 0 &&
+               (robot_ip_buf[ip_len - 1] == ' ' ||
+                robot_ip_buf[ip_len - 1] == '\t' ||
+                robot_ip_buf[ip_len - 1] == '\r' ||
+                robot_ip_buf[ip_len - 1] == '\n')) {
+            robot_ip_buf[ip_len - 1] = '\0';
+            --ip_len;
+        }
+        return std::string(robot_ip_buf);
+    };
+    
+    /* Ensure context is initialized (lazy connect on first step) */
+    if (!%<ctxName>.isInitialized()) {
+        try {
+            std::string ip = extractRobotIP();
+            if (!ip.empty()) {
+                %<ctxName>.initialize(ip);
+                
+                /* Do an initial state read to populate output */
+                %<ctxName>.readStateOnce();
+            }
+        } catch (const franka::Exception& e) {
+            std::cerr << "FrankaVacuumGripperContext: failed to connect: " << e.what() << std::endl;
+        }
+    }
+    
+    /* Process triggers and update state output. */
+    if (%<ctxName>.isInitialized()) {
+        %<ctxName>.step(vacuum_rising, dropoff_rising, stop_rising, read_state_rising);
+    }
+}
+%endfunction
+
+%% ========================================================================
+%% Terminate - Cleanup code
+%% ========================================================================
+%function Terminate(block, system) Output
+{
+    %assign ctxName = "franka_vacuum_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    /* Shutdown this context */
+    %<ctxName>.shutdown();
+    
+    /* Cleanup shared vacuum gripper instances via manager. */
+    FrankaVacuumGripperManager::shutdownAll();
+}
+%endfunction

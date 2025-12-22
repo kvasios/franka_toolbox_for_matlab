@@ -11,9 +11,12 @@ function franka_setup_bus()
 %       - FrankaRobotStateBus: Complete robot state from libfranka (output)
 %       - FrankaModelDataBus: Computed dynamics/kinematics M, c, g, J (output)
 %       - FrankaRobotSettingsBus: Robot configuration settings (input)
-%     Gripper:
+%     Gripper (Finger):
 %       - FrankaGripperStateBus: Gripper state with command status (output)
 %       - FrankaGripperCommandBus: Gripper command parameters (input)
+%     Vacuum Gripper:
+%       - FrankaVacuumGripperStateBus: Vacuum gripper state with command status (output)
+%       - FrankaVacuumGripperCommandBus: Vacuum gripper command parameters (input)
 %
 %   Usage:
 %       % Call once before opening your model
@@ -75,6 +78,20 @@ function franka_setup_bus()
     gripperStateBus = franka_gripper_state_bus();
     assignin('base', 'FrankaGripperStateBus', gripperStateBus);
     fprintf('  FrankaGripperStateBus (%d elements)\n', length(gripperStateBus.Elements));
+    
+    % ========================================================================
+    % VACUUM GRIPPER BUSES
+    % ========================================================================
+    
+    % Register FrankaVacuumGripperCommandBus (Input)
+    vacuumCommandBus = franka_vacuum_gripper_command_bus();
+    assignin('base', 'FrankaVacuumGripperCommandBus', vacuumCommandBus);
+    fprintf('  FrankaVacuumGripperCommandBus (%d elements)\n', length(vacuumCommandBus.Elements));
+    
+    % Register FrankaVacuumGripperStateBus (Output)
+    vacuumStateBus = franka_vacuum_gripper_state_bus();
+    assignin('base', 'FrankaVacuumGripperStateBus', vacuumStateBus);
+    fprintf('  FrankaVacuumGripperStateBus (%d elements)\n', length(vacuumStateBus.Elements));
     
     fprintf('Done! All Franka bus types registered.\n');
 end

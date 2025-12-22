@@ -312,4 +312,104 @@ struct FrankaGripperCommandBus {
     double move_speed;          ///< Movement speed [m/s]
 };
 
+// ============================================================================
+// VACUUM GRIPPER TYPES
+// ============================================================================
+
+/**
+ * @brief Vacuum gripper command enumeration
+ * 
+ * Commands are triggered by rising edge on the corresponding trigger input.
+ */
+enum FrankaVacuumGripperCommand {
+    FRANKA_VACUUM_CMD_NONE = 0,      ///< No command (idle)
+    FRANKA_VACUUM_CMD_VACUUM = 1,    ///< Activate vacuum to grip object
+    FRANKA_VACUUM_CMD_DROP_OFF = 2,  ///< Release object (drop off)
+    FRANKA_VACUUM_CMD_STOP = 3       ///< Stop current operation
+};
+
+/**
+ * @brief Vacuum gripper device status (matches franka::VacuumGripperDeviceStatus)
+ */
+enum FrankaVacuumGripperDeviceStatus {
+    FRANKA_VACUUM_DEVICE_GREEN = 0,   ///< Device working optimally
+    FRANKA_VACUUM_DEVICE_YELLOW = 1,  ///< Device working with warnings
+    FRANKA_VACUUM_DEVICE_ORANGE = 2,  ///< Device working with severe warnings
+    FRANKA_VACUUM_DEVICE_RED = 3      ///< Device not working properly
+};
+
+/**
+ * @brief Vacuum gripper production setup profile (matches franka::VacuumGripper::ProductionSetupProfile)
+ */
+enum FrankaVacuumGripperProfile {
+    FRANKA_VACUUM_PROFILE_P0 = 0,
+    FRANKA_VACUUM_PROFILE_P1 = 1,
+    FRANKA_VACUUM_PROFILE_P2 = 2,
+    FRANKA_VACUUM_PROFILE_P3 = 3
+};
+
+/**
+ * @brief Vacuum gripper command status enumeration
+ */
+enum FrankaVacuumGripperStatus {
+    FRANKA_VACUUM_STATUS_IDLE = 0,        ///< No command in progress
+    FRANKA_VACUUM_STATUS_BUSY = 1,        ///< Command in progress
+    FRANKA_VACUUM_STATUS_SUCCESS = 2,     ///< Last command succeeded
+    FRANKA_VACUUM_STATUS_FAILED = 3,      ///< Last command returned false
+    FRANKA_VACUUM_STATUS_ERROR = 4        ///< Last command threw exception
+};
+
+/**
+ * @brief C struct matching FrankaVacuumGripperStateBus Simulink bus
+ * 
+ * This struct mirrors franka::VacuumGripperState with additional status fields.
+ * 
+ * IMPORTANT: Field order MUST match franka_vacuum_gripper_state_bus.m exactly!
+ */
+struct FrankaVacuumGripperStateBus {
+    // ========================================================================
+    // Vacuum Gripper State (from franka::VacuumGripperState)
+    // ========================================================================
+    
+    double in_control_range;    ///< Vacuum within setpoint area (0=no, 1=yes)
+    double part_detached;       ///< Part detached after suction cycle (0=no, 1=yes)
+    double part_present;        ///< Part is present/gripped (0=no, 1=yes)
+    int32_t device_status;      ///< Device status (FrankaVacuumGripperDeviceStatus enum)
+    double actual_power;        ///< Current power consumption [%]
+    double vacuum;              ///< Current vacuum level [mbar]
+    double time;                ///< Time since robot start [s]
+    
+    // ========================================================================
+    // Command Status
+    // ========================================================================
+    
+    int32_t command_status;     ///< Current status (FrankaVacuumGripperStatus enum)
+    int32_t last_command;       ///< Last executed command (FrankaVacuumGripperCommand enum)
+    int32_t command_success;    ///< Result of last command (0=failed, 1=success)
+    int32_t error_code;         ///< Error code if command_status == ERROR
+};
+
+/**
+ * @brief C struct matching FrankaVacuumGripperCommandBus Simulink bus
+ * 
+ * Contains all parameters for vacuum gripper commands.
+ * 
+ * IMPORTANT: Field order MUST match franka_vacuum_gripper_command_bus.m exactly!
+ */
+struct FrankaVacuumGripperCommandBus {
+    // ========================================================================
+    // Vacuum Command Parameters (used when vacuum trigger rises)
+    // ========================================================================
+    
+    double vacuum_setpoint;     ///< Vacuum setpoint [10*mbar] (e.g., 50 = 500 mbar)
+    double vacuum_timeout;      ///< Vacuum timeout [ms]
+    int32_t vacuum_profile;     ///< Production profile (0=P0, 1=P1, 2=P2, 3=P3)
+    
+    // ========================================================================
+    // Drop Off Command Parameters (used when drop_off trigger rises)
+    // ========================================================================
+    
+    double dropoff_timeout;     ///< Drop off timeout [ms]
+};
+
 #endif // FRANKA_SIMULINK_TYPES_H
