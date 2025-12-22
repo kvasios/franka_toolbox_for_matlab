@@ -228,4 +228,88 @@ struct FrankaRobotSettingsBus {
     double load_inertia_matrix[9];     ///< Load rotational inertia [kg*m^2] (3x3 col-major)
 };
 
+// ============================================================================
+// GRIPPER TYPES
+// ============================================================================
+
+/**
+ * @brief Gripper command enumeration
+ * 
+ * Commands are triggered by rising edge on the corresponding trigger input.
+ */
+enum FrankaGripperCommand {
+    FRANKA_GRIPPER_CMD_NONE = 0,     ///< No command (idle)
+    FRANKA_GRIPPER_CMD_HOMING = 1,   ///< Perform homing to estimate max width
+    FRANKA_GRIPPER_CMD_GRASP = 2,    ///< Grasp an object
+    FRANKA_GRIPPER_CMD_MOVE = 3,     ///< Move to target width
+    FRANKA_GRIPPER_CMD_STOP = 4      ///< Stop current motion
+};
+
+/**
+ * @brief Gripper command status enumeration
+ */
+enum FrankaGripperStatus {
+    FRANKA_GRIPPER_STATUS_IDLE = 0,           ///< No command in progress
+    FRANKA_GRIPPER_STATUS_BUSY = 1,           ///< Command in progress
+    FRANKA_GRIPPER_STATUS_SUCCESS = 2,        ///< Last command succeeded
+    FRANKA_GRIPPER_STATUS_FAILED = 3,         ///< Last command returned false
+    FRANKA_GRIPPER_STATUS_ERROR = 4           ///< Last command threw exception
+};
+
+/**
+ * @brief C struct matching FrankaGripperStateBus Simulink bus
+ * 
+ * This struct mirrors franka::GripperState with additional status fields
+ * for command tracking.
+ * 
+ * IMPORTANT: Field order MUST match franka_gripper_state_bus.m exactly!
+ */
+struct FrankaGripperStateBus {
+    // ========================================================================
+    // Gripper State (from franka::GripperState)
+    // ========================================================================
+    
+    double width;           ///< Current gripper opening width [m]
+    double max_width;       ///< Maximum gripper opening width [m] (from homing)
+    double is_grasped;      ///< Whether an object is grasped (0=no, 1=yes)
+    double temperature;     ///< Current gripper temperature [°C]
+    double time;            ///< Time since robot start [s]
+    
+    // ========================================================================
+    // Command Status
+    // ========================================================================
+    
+    int32_t command_status;     ///< Current status (FrankaGripperStatus enum)
+    int32_t last_command;       ///< Last executed command (FrankaGripperCommand enum)
+    int32_t command_success;    ///< Result of last command (0=failed, 1=success)
+    int32_t error_code;         ///< Error code if command_status == ERROR
+};
+
+/**
+ * @brief C struct matching FrankaGripperCommandBus Simulink bus
+ * 
+ * Contains all parameters for gripper commands. Parameters are read
+ * when the corresponding command trigger rises.
+ * 
+ * IMPORTANT: Field order MUST match franka_gripper_command_bus.m exactly!
+ */
+struct FrankaGripperCommandBus {
+    // ========================================================================
+    // Grasp Command Parameters (used when grasp trigger rises)
+    // ========================================================================
+    
+    double grasp_width;         ///< Target grasp width [m]
+    double grasp_speed;         ///< Closing speed [m/s]
+    double grasp_force;         ///< Grasping force [N]
+    double grasp_epsilon_inner; ///< Inner tolerance for grasp detection [m]
+    double grasp_epsilon_outer; ///< Outer tolerance for grasp detection [m]
+    
+    // ========================================================================
+    // Move Command Parameters (used when move trigger rises)
+    // ========================================================================
+    
+    double move_width;          ///< Target move width [m]
+    double move_speed;          ///< Movement speed [m/s]
+};
+
 #endif // FRANKA_SIMULINK_TYPES_H

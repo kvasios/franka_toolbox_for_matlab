@@ -28,6 +28,17 @@ matlab_add_mex(
 )
 
 # ============================================================================
+# Gripper S-Function (for Simulink simulation)
+# ============================================================================
+# Async gripper control with command worker thread.
+# Commands (homing, grasp, move, stop) triggered by rising edges.
+#
+matlab_add_mex(
+     NAME franka_gripper_sfunction
+     SRC "blocks/franka_gripper_sfunction.cpp"
+)
+
+# ============================================================================
 # Motion Generator S-Function (standalone, no external dependencies)
 # ============================================================================
 # Generic joint-space trajectory generator using synchronized polynomial profiles.

@@ -1,0 +1,192 @@
+%%  Copyright (c) 2025 Franka Robotics GmbH
+%%  Franka Gripper Block - TLC Implementation
+%%
+%%  This TLC generates code for the Franka gripper S-function.
+%%  Commands are executed asynchronously via a worker thread.
+%%
+%%  Inputs:
+%%    0. robot_ip    - Robot IP as ASCII chars
+%%    1. command     - Command parameters bus (FrankaGripperCommandBus)
+%%    2. homing      - Trigger: homing command
+%%    3. grasp       - Trigger: grasp command
+%%    4. move        - Trigger: move command
+%%    5. stop        - Trigger: stop command
+%%    6. read_state  - Trigger: force state read
+%%
+%%  Outputs:
+%%    0. gripper_state - Gripper state bus (FrankaGripperStateBus)
+%%
+%implements "franka_gripper_sfunction" "C"
+
+%% ========================================================================
+%% BlockTypeSetup - Called once per block type
+%% ========================================================================
+%function BlockTypeSetup(block, system) void
+    %<LibAddToCommonIncludes("franka_gripper_api.h")>
+    %<LibAddToCommonIncludes("franka_simulink_types.h")>
+    %<LibAddToCommonIncludes("<cstring>")>
+    %<LibAddToCommonIncludes("<iostream>")>
+%endfunction
+
+%% ========================================================================
+%% BlockInstanceSetup - Called once per block instance
+%% Declares global variables
+%% ========================================================================
+%function BlockInstanceSetup(block, system) Output
+{
+    %openfile buffer
+    
+    /* Franka Gripper Context (per block instance).
+     *
+     * Each block gets its own FrankaGripperContext to manage I/O pointers
+     * and command triggers. Multiple contexts targeting the same robot IP
+     * share the underlying gripper connection via FrankaGripperManager.
+     */
+    %assign ctxName = "franka_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    FrankaGripperContext %<ctxName>;
+
+    %closefile buffer
+    %<LibCacheGlobalPrmData(buffer)>
+}
+%endfunction
+
+%% ========================================================================
+%% Start - Initialization code
+%% ========================================================================
+%function Start(block, system) Output
+{
+    %assign ctxName = "franka_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    /* NOTE:
+     * Do NOT connect to the gripper in Start().
+     *
+     * Similar to the robot block, the robot_ip input port may not have
+     * valid data at Start() time. We connect lazily on first step when
+     * the IP string is available.
+     */
+    
+    /* Wire output pointer to Simulink signal */
+    %assign stateExpr = "%<LibBlockOutputSignalAddr(0, "", "", 0)>"
+    
+    %<ctxName>.setStateOutputPointer(
+        reinterpret_cast<FrankaGripperStateBus*>(%<stateExpr>)
+    );
+    
+    /* Wire command input pointer */
+    %assign commandExpr = "%<LibBlockInputSignalAddr(1, "", "", 0)>"
+    
+    %<ctxName>.setCommandInputPointer(
+        reinterpret_cast<const FrankaGripperCommandBus*>(%<commandExpr>)
+    );
+    
+    /* Initialize DWork state (for edge detection). */
+    %<LibBlockDWork(PrevHoming, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevGrasp, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevMove, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevStop, "", "", 0)> = 0.0;
+    %<LibBlockDWork(PrevReadState, "", "", 0)> = 0.0;
+}
+%endfunction
+
+%% ========================================================================
+%% Outputs - Called by Simulink scheduler
+%% ========================================================================
+%function Outputs(block, system) Output
+{
+    %assign ctxName = "franka_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    /* Franka Gripper Block */
+    
+    /* Get trigger inputs */
+    real_T homing = %<LibBlockInputSignal(2, "", "", 0)>;
+    real_T grasp = %<LibBlockInputSignal(3, "", "", 0)>;
+    real_T move = %<LibBlockInputSignal(4, "", "", 0)>;
+    real_T stop_cmd = %<LibBlockInputSignal(5, "", "", 0)>;
+    real_T read_state = %<LibBlockInputSignal(6, "", "", 0)>;
+    
+    /* Get previous values for edge detection */
+    real_T prev_homing = %<LibBlockDWork(PrevHoming, "", "", 0)>;
+    real_T prev_grasp = %<LibBlockDWork(PrevGrasp, "", "", 0)>;
+    real_T prev_move = %<LibBlockDWork(PrevMove, "", "", 0)>;
+    real_T prev_stop = %<LibBlockDWork(PrevStop, "", "", 0)>;
+    real_T prev_read_state = %<LibBlockDWork(PrevReadState, "", "", 0)>;
+    
+    /* Detect rising edges */
+    real_T homing_rising = ((homing > 0.5) && (prev_homing <= 0.5)) ? 1.0 : 0.0;
+    real_T grasp_rising = ((grasp > 0.5) && (prev_grasp <= 0.5)) ? 1.0 : 0.0;
+    real_T move_rising = ((move > 0.5) && (prev_move <= 0.5)) ? 1.0 : 0.0;
+    real_T stop_rising = ((stop_cmd > 0.5) && (prev_stop <= 0.5)) ? 1.0 : 0.0;
+    real_T read_state_rising = ((read_state > 0.5) && (prev_read_state <= 0.5)) ? 1.0 : 0.0;
+    
+    /* Update previous values for next step */
+    %<LibBlockDWork(PrevHoming, "", "", 0)> = homing;
+    %<LibBlockDWork(PrevGrasp, "", "", 0)> = grasp;
+    %<LibBlockDWork(PrevMove, "", "", 0)> = move;
+    %<LibBlockDWork(PrevStop, "", "", 0)> = stop_cmd;
+    %<LibBlockDWork(PrevReadState, "", "", 0)> = read_state;
+    
+    /* Helper: Extract robot IP from input port */
+    auto extractRobotIP = [&]() -> std::string {
+        const uint8_T* robot_ip_u8 = reinterpret_cast<const uint8_T*>(
+            %<LibBlockInputSignalAddr(0, "", "", 0)>
+        );
+        char robot_ip_buf[17];
+        std::memcpy(robot_ip_buf, robot_ip_u8, 16);
+        robot_ip_buf[16] = '\0';
+
+        /* Trim trailing whitespace. */
+        int ip_len = 0;
+        while (ip_len < 16 && robot_ip_buf[ip_len] != '\0') {
+            ++ip_len;
+        }
+        while (ip_len > 0 &&
+               (robot_ip_buf[ip_len - 1] == ' ' ||
+                robot_ip_buf[ip_len - 1] == '\t' ||
+                robot_ip_buf[ip_len - 1] == '\r' ||
+                robot_ip_buf[ip_len - 1] == '\n')) {
+            robot_ip_buf[ip_len - 1] = '\0';
+            --ip_len;
+        }
+        return std::string(robot_ip_buf);
+    };
+    
+    /* Ensure context is initialized (lazy connect on first step) */
+    if (!%<ctxName>.isInitialized()) {
+        try {
+            std::string ip = extractRobotIP();
+            if (!ip.empty()) {
+                %<ctxName>.initialize(ip);
+                
+                /* Do an initial state read to populate output */
+                %<ctxName>.readStateOnce();
+            }
+        } catch (const franka::Exception& e) {
+            std::cerr << "FrankaGripperContext: failed to connect: " << e.what() << std::endl;
+        }
+    }
+    
+    /* Process triggers and update state output.
+     * Edge detection was done above using DWork for persistence.
+     */
+    if (%<ctxName>.isInitialized()) {
+        /* Pass rising edge signals to context */
+        %<ctxName>.step(homing_rising, grasp_rising, move_rising, stop_rising, read_state_rising);
+    }
+}
+%endfunction
+
+%% ========================================================================
+%% Terminate - Cleanup code
+%% ========================================================================
+%function Terminate(block, system) Output
+{
+    %assign ctxName = "franka_gripper_ctx_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+    
+    /* Shutdown this context */
+    %<ctxName>.shutdown();
+    
+    /* Cleanup shared gripper instances via manager.
+     * This is idempotent - safe to call from multiple blocks.
+     */
+    FrankaGripperManager::shutdownAll();
+}
+%endfunction
