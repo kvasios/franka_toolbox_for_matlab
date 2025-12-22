@@ -7,6 +7,7 @@
 
 #include "franka_gripper_api.h"
 
+#include <cstring>
 #include <chrono>
 #include <iostream>
 #include <algorithm>
