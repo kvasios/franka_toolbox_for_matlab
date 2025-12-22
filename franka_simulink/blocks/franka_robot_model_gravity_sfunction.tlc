@@ -1,13 +1,13 @@
 %% Copyright (c) 2025 Franka Robotics GmbH
-%% Franka Robot Model: Jacobian Computation
+%% Franka Robot Model: Gravity Vector Computation
 %%
-%% Computes the 6x7 Jacobian matrix using libfranka's Model class
+%% Computes the gravity compensation torques g(q) using libfranka's Model class
 %% via FrankaRobotManager. The robot connection is shared with other
 %% blocks targeting the same IP.
 %%
 %% Works both standalone and under function-called subsystems.
 %%
-%implements "franka_robot_model_jacobian" "C"
+%implements "franka_robot_model_gravity_sfunction" "C"
 
 %% ========================================================================
 %% BlockTypeSetup - Called once per block type
@@ -22,7 +22,7 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
-    /* franka_robot_model_jacobian: Initialization
+    /* franka_robot_model_gravity: Initialization
      * 
      * The robot connection is managed lazily by FrankaRobotManager.
      */
@@ -30,43 +30,48 @@
 %endfunction
 
 %% ========================================================================
-%% Outputs - Compute Jacobian
+%% Outputs - Compute gravity vector
 %% ========================================================================
 %function Outputs(block, system) Output
 {
     %% Extract parameters
     %assign robot_ip = FEVAL("erase", ParamSettings.robot_ip, "'")
     %assign robot_ip = FEVAL("strtrim", robot_ip)
-    %assign jacobian_type = ParamSettings.jacobian_type[0][0]
-    %assign frame = ParamSettings.frame[0][0]
+    %assign use_custom_gravity = ParamSettings.use_custom_gravity[0][0]
     
-    /* franka_robot_model_jacobian: Compute Jacobian matrix
+    /* franka_robot_model_gravity: Compute gravity compensation torques g(q)
      * Robot IP: %<robot_ip>
-     * Jacobian type: %<jacobian_type> (0=zero/base, 1=body)
-     * Frame: %<frame> (0-6=Joint1-7, 7=Flange, 8=EndEffector, 9=Stiffness)
+     * Custom gravity: %<use_custom_gravity>
      * 
      * Inputs:
      *   Port 0: q (7x1) - Joint positions
-     *   Port 1: F_T_EE (16x1) - End effector in flange frame
-     *   Port 2: EE_T_K (16x1) - Stiffness frame in EE frame
+     *   Port 1: m_total (1x1) - Total load mass
+     *   Port 2: F_x_Ctotal (3x1) - Total load CoM
+     %if use_custom_gravity
+     *   Port 3: gravity_earth (3x1) - Custom gravity vector
+     %endif
      * 
      * Output:
-     *   Port 0: jacobian (6x7) - Jacobian matrix
+     *   Port 0: gravity (7x1) - Gravity compensation torques [Nm]
      */
     
     const double* q = %<LibBlockInputSignalAddr(0, "", "", 0)>;
-    const double* F_T_EE = %<LibBlockInputSignalAddr(1, "", "", 0)>;
-    const double* EE_T_K = %<LibBlockInputSignalAddr(2, "", "", 0)>;
-    double* jacobian_out = %<LibBlockOutputSignalAddr(0, "", "", 0)>;
+    double m_total = *%<LibBlockInputSignalAddr(1, "", "", 0)>;
+    const double* F_x_Ctotal = %<LibBlockInputSignalAddr(2, "", "", 0)>;
+    double* gravity_out = %<LibBlockOutputSignalAddr(0, "", "", 0)>;
     
-    /* Compute Jacobian via FrankaRobotManager */
-    if (!FrankaRobotManager::computeJacobian("%<robot_ip>",
-                                              %<jacobian_type>,
-                                              %<frame>,
-                                              q, F_T_EE, EE_T_K,
-                                              jacobian_out)) {
+    %if use_custom_gravity
+        const double* gravity_earth = %<LibBlockInputSignalAddr(3, "", "", 0)>;
+    %else
+        const double* gravity_earth = nullptr;  /* Use default {0, 0, -9.81} */
+    %endif
+    
+    /* Compute gravity vector via FrankaRobotManager */
+    if (!FrankaRobotManager::computeGravity("%<robot_ip>",
+                                             q, m_total, F_x_Ctotal, gravity_earth,
+                                             gravity_out)) {
         /* Connection failed or computation error - zero output */
-        std::memset(jacobian_out, 0, 42 * sizeof(double));
+        std::memset(gravity_out, 0, 7 * sizeof(double));
     }
 }
 %endfunction
@@ -76,6 +81,6 @@
 %% ========================================================================
 %function Terminate(block, system) Output
 {
-    /* franka_robot_model_jacobian: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
+    /* franka_robot_model_gravity: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
 }
 %endfunction

@@ -1,27 +1,32 @@
-function franka_robot_model_jacobian(block)
-%FRANKA_ROBOT_MODEL_JACOBIAN Compute Jacobian matrix using libfranka Model
+function franka_robot_model_gravity_sfunction(block)
+%FRANKA_ROBOT_MODEL_GRAVITY Compute gravity vector g(q) using libfranka Model
 %
-%  This block computes the 6x7 Jacobian matrix from explicit inputs using
-%  the robot's kinematic/dynamic model. It integrates with FrankaRobotManager
+%  This block computes the gravity compensation torques from explicit inputs
+%  using the robot's kinematic/dynamic model. It integrates with FrankaRobotManager
 %  to share the robot connection with other blocks.
 %
 %  Parameters:
-%    robot_ip      - IP address of the Franka robot (for model lookup)
-%    jacobian_type - 0 = zeroJacobian (base frame), 1 = bodyJacobian (body frame)
-%    frame         - Target frame: 0-6 = Joint1-7, 7 = Flange, 8 = EndEffector, 9 = Stiffness
+%    robot_ip           - IP address of the Franka robot (for model lookup)
+%    use_custom_gravity - 0 = use default gravity {0,0,-9.81}, 1 = use input
 %
-%  Inputs:
-%    q       - Joint positions [rad] (7x1)
-%    F_T_EE  - End effector in flange frame (4x4 column-major as 16x1)
-%    EE_T_K  - Stiffness frame in EE frame (4x4 column-major as 16x1)
+%  Inputs (use_custom_gravity = 0):
+%    q          - Joint positions [rad] (7x1)
+%    m_total    - Total load mass [kg] (1x1)
+%    F_x_Ctotal - Total load CoM in flange frame [m] (3x1)
+%
+%  Inputs (use_custom_gravity = 1):
+%    q             - Joint positions [rad] (7x1)
+%    m_total       - Total load mass [kg] (1x1)
+%    F_x_Ctotal    - Total load CoM in flange frame [m] (3x1)
+%    gravity_earth - Custom gravity vector [m/s^2] (3x1)
 %
 %  Outputs:
-%    jacobian - Jacobian matrix (6x7)
+%    gravity - Gravity compensation torques g(q) [Nm] (7x1)
 %
 %  Usage Notes:
-%    - For current robot state Jacobians, use the model_data output from
-%      franka_robot block (FrankaModelDataBus.jacobian, jacobian_body)
-%    - This block is for computing Jacobians from arbitrary configurations
+%    - For current robot state model data, use the model_data output from
+%      franka_robot block instead (FrankaModelDataBus.gravity)
+%    - This block is for computing model data from arbitrary configurations
 %    - Works both standalone AND under function-called subsystems
 %
 %  Copyright (c) 2025 Franka Robotics GmbH
@@ -32,13 +37,21 @@ setup(block);
 
 function setup(block)
 
-    % Register parameters: robot_ip, jacobian_type, frame
-    block.NumDialogPrms     = 3;
-    block.DialogPrmsTunable = {'Nontunable', 'Nontunable', 'Nontunable'};
+    % Register parameters: robot_ip, use_custom_gravity
+    block.NumDialogPrms     = 2;
+    block.DialogPrmsTunable = {'Nontunable', 'Nontunable'};
+    
+    use_custom_gravity = boolean(block.DialogPrm(2).Data);
+    
+    % Determine number of inputs
+    if use_custom_gravity
+        numInputs = 4;  % q, m_total, F_x_Ctotal, gravity_earth
+    else
+        numInputs = 3;  % q, m_total, F_x_Ctotal
+    end
     
     % Register number of ports
-    % Inputs: q(7), F_T_EE(16), EE_T_K(16)
-    block.NumInputPorts  = 3;
+    block.NumInputPorts  = numInputs;
     block.NumOutputPorts = 1;
 
     % Setup port properties to be inherited or dynamic
@@ -51,20 +64,28 @@ function setup(block)
     block.InputPort(1).Complexity  = 'Real';
     block.InputPort(1).DirectFeedthrough = true;
 
-    % Input 2: F_T_EE - End effector in flange frame (16x1)
-    block.InputPort(2).Dimensions  = 16;
+    % Input 2: m_total - Total load mass (1x1)
+    block.InputPort(2).Dimensions  = 1;
     block.InputPort(2).DatatypeID  = 0;  % double
     block.InputPort(2).Complexity  = 'Real';
     block.InputPort(2).DirectFeedthrough = true;
 
-    % Input 3: EE_T_K - Stiffness frame in EE frame (16x1)
-    block.InputPort(3).Dimensions  = 16;
+    % Input 3: F_x_Ctotal - Total load CoM (3x1)
+    block.InputPort(3).Dimensions  = 3;
     block.InputPort(3).DatatypeID  = 0;  % double
     block.InputPort(3).Complexity  = 'Real';
     block.InputPort(3).DirectFeedthrough = true;
 
-    % Output: jacobian (6x7 column-major)
-    block.OutputPort(1).Dimensions  = [6, 7];
+    % Input 4 (optional): gravity_earth - Custom gravity vector (3x1)
+    if use_custom_gravity
+        block.InputPort(4).Dimensions  = 3;
+        block.InputPort(4).DatatypeID  = 0;  % double
+        block.InputPort(4).Complexity  = 'Real';
+        block.InputPort(4).DirectFeedthrough = true;
+    end
+
+    % Output: gravity vector (7x1)
+    block.OutputPort(1).Dimensions  = 7;
     block.OutputPort(1).DatatypeID  = 0;  % double
     block.OutputPort(1).Complexity  = 'Real';
     block.OutputPort(1).SamplingMode = 'Sample';
@@ -88,18 +109,6 @@ function CheckPrms(block)
     if ~ischar(robot_ip) && ~isstring(robot_ip)
         error('robot_ip must be a string');
     end
-    
-    % Validate jacobian_type (0 or 1)
-    jacobian_type = block.DialogPrm(2).Data;
-    if jacobian_type ~= 0 && jacobian_type ~= 1
-        error('jacobian_type must be 0 (zero) or 1 (body)');
-    end
-    
-    % Validate frame (0-9)
-    frame = block.DialogPrm(3).Data;
-    if frame < 0 || frame > 9
-        error('frame must be 0-9');
-    end
 
 function DoPostPropSetup(block)
     % No DWork needed
@@ -112,16 +121,14 @@ function Start(block)
 
 function Outputs(block)
     % For simulation only - actual implementation is in TLC
-    block.OutputPort(1).Data = zeros(6, 7);
+    block.OutputPort(1).Data = zeros(7, 1);
 
 function WriteRTW(block)
     % Write parameters to RTW file for TLC access
     robot_ip = block.DialogPrm(1).Data;
-    jacobian_type = block.DialogPrm(2).Data;
-    frame = block.DialogPrm(3).Data;
+    use_custom_gravity = block.DialogPrm(2).Data;
     
     robot_ip = char(['''', robot_ip, '''']);
     
     block.WriteRTWParam('string', 'robot_ip', robot_ip);
-    block.WriteRTWParam('matrix', 'jacobian_type', int8(jacobian_type));
-    block.WriteRTWParam('matrix', 'frame', int8(frame));
+    block.WriteRTWParam('matrix', 'use_custom_gravity', int8(use_custom_gravity));

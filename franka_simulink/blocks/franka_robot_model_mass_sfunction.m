@@ -1,4 +1,4 @@
-function franka_robot_model_mass(block)
+function franka_robot_model_mass_sfunction(block)
 %FRANKA_ROBOT_MODEL_MASS Compute mass matrix M(q) using libfranka Model
 %
 %  This block computes the 7x7 mass matrix from explicit inputs using

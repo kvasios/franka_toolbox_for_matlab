@@ -7,7 +7,7 @@
 %%
 %% Works both standalone and under function-called subsystems.
 %%
-%implements "franka_robot_model_pose" "C"
+%implements "franka_robot_model_pose_sfunction" "C"
 
 %% ========================================================================
 %% BlockTypeSetup - Called once per block type
