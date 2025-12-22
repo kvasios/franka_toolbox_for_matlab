@@ -15,6 +15,7 @@
 %function BlockTypeSetup(block, system) void
     %<LibAddToCommonIncludes("franka_robot_api.h")>
     %<LibAddToCommonIncludes("<cstring>")>
+    %<LibAddToCommonIncludes("<string>")>
 %endfunction
 
 %% ========================================================================
@@ -22,11 +23,9 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
-    /* franka_robot_model_mass: Initialization
+    /* franka_robot_model_mass_sfunction: Initialization
      * 
      * The robot connection is managed lazily by FrankaRobotManager.
-     * getOrCreate() will connect on first call, subsequent calls reuse
-     * the existing connection.
      */
 }
 %endfunction
@@ -36,38 +35,34 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    %% Extract robot_ip parameter
-    %assign robot_ip = FEVAL("erase", ParamSettings.robot_ip, "'")
-    %assign robot_ip = FEVAL("strtrim", robot_ip)
-    
-    /* franka_robot_model_mass: Compute mass matrix M(q)
-     * Robot IP: %<robot_ip>
+    /* franka_robot_model_mass_sfunction: Compute mass matrix M(q)
      * 
      * Inputs:
-     *   Port 0: q (7x1) - Joint positions
-     *   Port 1: I_total (9x1) - Total load inertia (3x3 col-major)
-     *   Port 2: m_total (1x1) - Total load mass
-     *   Port 3: F_x_Ctotal (3x1) - Total load CoM
+     *   Port 0: robot_ip (16x1 uint8) - Robot IP address
+     *   Port 1: q (7x1) - Joint positions
+     *   Port 2: I_total (9x1) - Total load inertia (3x3 col-major)
+     *   Port 3: m_total (1x1) - Total load mass
+     *   Port 4: F_x_Ctotal (3x1) - Total load CoM
      * 
      * Output:
      *   Port 0: mass (7x7) - Mass matrix M(q)
      */
     
-    const double* q = %<LibBlockInputSignalAddr(0, "", "", 0)>;
-    const double* I_total = %<LibBlockInputSignalAddr(1, "", "", 0)>;
-    double m_total = *%<LibBlockInputSignalAddr(2, "", "", 0)>;
-    const double* F_x_Ctotal = %<LibBlockInputSignalAddr(3, "", "", 0)>;
+    /* Extract robot IP from input port */
+    const uint8_T* robot_ip_u8 = %<LibBlockInputSignalAddr(0, "", "", 0)>;
+    char robot_ip_buf[17];
+    std::memcpy(robot_ip_buf, robot_ip_u8, 16);
+    robot_ip_buf[16] = '\0';
+    std::string robot_ip(robot_ip_buf);
+    
+    const double* q = %<LibBlockInputSignalAddr(1, "", "", 0)>;
+    const double* I_total = %<LibBlockInputSignalAddr(2, "", "", 0)>;
+    double m_total = *%<LibBlockInputSignalAddr(3, "", "", 0)>;
+    const double* F_x_Ctotal = %<LibBlockInputSignalAddr(4, "", "", 0)>;
     double* mass_out = %<LibBlockOutputSignalAddr(0, "", "", 0)>;
     
-    /* Compute mass matrix via FrankaRobotManager.
-     * This will:
-     * 1. Get or create the robot connection (thread-safe, shared)
-     * 2. Call libfranka Model::mass() with the provided parameters
-     * 3. Copy results to output
-     * 
-     * If connection fails, outputs will be zeroed.
-     */
-    if (!FrankaRobotManager::computeMass("%<robot_ip>",
+    /* Compute mass matrix via FrankaRobotManager */
+    if (!FrankaRobotManager::computeMass(robot_ip,
                                           q, I_total, m_total, F_x_Ctotal,
                                           mass_out)) {
         /* Connection failed or computation error - zero output */
@@ -77,15 +72,10 @@
 %endfunction
 
 %% ========================================================================
-%% Terminate - Cleanup (handled by FrankaRobotManager::shutdownAll)
+%% Terminate - Cleanup
 %% ========================================================================
 %function Terminate(block, system) Output
 {
-    /* franka_robot_model_mass: Terminate
-     * 
-     * Cleanup is handled globally by FrankaRobotManager::shutdownAll()
-     * which is called by franka_robot_sfunction's Terminate function.
-     * This ensures proper cleanup order and prevents double-free.
-     */
+    /* franka_robot_model_mass_sfunction: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
 }
 %endfunction

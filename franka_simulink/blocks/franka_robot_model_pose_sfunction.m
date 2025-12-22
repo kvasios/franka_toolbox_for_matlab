@@ -1,18 +1,18 @@
 function franka_robot_model_pose_sfunction(block)
-%FRANKA_ROBOT_MODEL_POSE Compute forward kinematics pose using libfranka Model
+%FRANKA_ROBOT_MODEL_POSE_SFUNCTION Compute forward kinematics pose using libfranka Model
 %
 %  This block computes the 4x4 pose transformation for a specified frame
 %  from explicit inputs using the robot's kinematic model. It integrates
 %  with FrankaRobotManager to share the robot connection with other blocks.
 %
 %  Parameters:
-%    robot_ip - IP address of the Franka robot (for model lookup)
-%    frame    - Target frame: 0-6 = Joint1-7, 7 = Flange, 8 = EndEffector, 9 = Stiffness
+%    frame - Target frame: 0-6 = Joint1-7, 7 = Flange, 8 = EndEffector, 9 = Stiffness
 %
 %  Inputs:
-%    q       - Joint positions [rad] (7x1)
-%    F_T_EE  - End effector in flange frame (4x4 column-major as 16x1)
-%    EE_T_K  - Stiffness frame in EE frame (4x4 column-major as 16x1)
+%    robot_ip - IP address of the Franka robot (16 ASCII chars)
+%    q        - Joint positions [rad] (7x1)
+%    F_T_EE   - End effector in flange frame (4x4 column-major as 16x1)
+%    EE_T_K   - Stiffness frame in EE frame (4x4 column-major as 16x1)
 %
 %  Outputs:
 %    pose - Transformation matrix in base frame (4x4)
@@ -31,36 +31,42 @@ setup(block);
 
 function setup(block)
 
-    % Register parameters: robot_ip, frame
-    block.NumDialogPrms     = 2;
-    block.DialogPrmsTunable = {'Nontunable', 'Nontunable'};
+    % Register parameters: frame only
+    block.NumDialogPrms     = 1;
+    block.DialogPrmsTunable = {'Nontunable'};
     
     % Register number of ports
-    % Inputs: q(7), F_T_EE(16), EE_T_K(16)
-    block.NumInputPorts  = 3;
+    % Inputs: robot_ip(16), q(7), F_T_EE(16), EE_T_K(16)
+    block.NumInputPorts  = 4;
     block.NumOutputPorts = 1;
 
     % Setup port properties to be inherited or dynamic
     block.SetPreCompInpPortInfoToDynamic;
     block.SetPreCompOutPortInfoToDynamic;
 
-    % Input 1: q - Joint positions (7x1)
-    block.InputPort(1).Dimensions  = 7;
-    block.InputPort(1).DatatypeID  = 0;  % double
+    % Input 1: robot_ip - Robot IP address (16 ASCII chars)
+    block.InputPort(1).Dimensions  = 16;
+    block.InputPort(1).DatatypeID  = 3;  % uint8
     block.InputPort(1).Complexity  = 'Real';
     block.InputPort(1).DirectFeedthrough = true;
 
-    % Input 2: F_T_EE - End effector in flange frame (16x1)
-    block.InputPort(2).Dimensions  = 16;
+    % Input 2: q - Joint positions (7x1)
+    block.InputPort(2).Dimensions  = 7;
     block.InputPort(2).DatatypeID  = 0;  % double
     block.InputPort(2).Complexity  = 'Real';
     block.InputPort(2).DirectFeedthrough = true;
 
-    % Input 3: EE_T_K - Stiffness frame in EE frame (16x1)
+    % Input 3: F_T_EE - End effector in flange frame (16x1)
     block.InputPort(3).Dimensions  = 16;
     block.InputPort(3).DatatypeID  = 0;  % double
     block.InputPort(3).Complexity  = 'Real';
     block.InputPort(3).DirectFeedthrough = true;
+
+    % Input 4: EE_T_K - Stiffness frame in EE frame (16x1)
+    block.InputPort(4).Dimensions  = 16;
+    block.InputPort(4).DatatypeID  = 0;  % double
+    block.InputPort(4).Complexity  = 'Real';
+    block.InputPort(4).DirectFeedthrough = true;
 
     % Output: pose transformation (4x4 column-major)
     block.OutputPort(1).Dimensions  = [4, 4];
@@ -82,14 +88,8 @@ function setup(block)
     block.RegBlockMethod('Outputs',                 @Outputs);
 
 function CheckPrms(block)
-    % Validate robot_ip parameter
-    robot_ip = block.DialogPrm(1).Data;
-    if ~ischar(robot_ip) && ~isstring(robot_ip)
-        error('robot_ip must be a string');
-    end
-    
     % Validate frame (0-9)
-    frame = block.DialogPrm(2).Data;
+    frame = block.DialogPrm(1).Data;
     if frame < 0 || frame > 9
         error('frame must be 0-9');
     end
@@ -110,10 +110,5 @@ function Outputs(block)
 
 function WriteRTW(block)
     % Write parameters to RTW file for TLC access
-    robot_ip = block.DialogPrm(1).Data;
-    frame = block.DialogPrm(2).Data;
-    
-    robot_ip = char(['''', robot_ip, '''']);
-    
-    block.WriteRTWParam('string', 'robot_ip', robot_ip);
+    frame = block.DialogPrm(1).Data;
     block.WriteRTWParam('matrix', 'frame', int8(frame));

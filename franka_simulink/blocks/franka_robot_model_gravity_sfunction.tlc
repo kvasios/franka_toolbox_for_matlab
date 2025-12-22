@@ -15,6 +15,7 @@
 %function BlockTypeSetup(block, system) void
     %<LibAddToCommonIncludes("franka_robot_api.h")>
     %<LibAddToCommonIncludes("<cstring>")>
+    %<LibAddToCommonIncludes("<string>")>
 %endfunction
 
 %% ========================================================================
@@ -22,7 +23,7 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
-    /* franka_robot_model_gravity: Initialization
+    /* franka_robot_model_gravity_sfunction: Initialization
      * 
      * The robot connection is managed lazily by FrankaRobotManager.
      */
@@ -35,39 +36,44 @@
 %function Outputs(block, system) Output
 {
     %% Extract parameters
-    %assign robot_ip = FEVAL("erase", ParamSettings.robot_ip, "'")
-    %assign robot_ip = FEVAL("strtrim", robot_ip)
     %assign use_custom_gravity = ParamSettings.use_custom_gravity[0][0]
     
-    /* franka_robot_model_gravity: Compute gravity compensation torques g(q)
-     * Robot IP: %<robot_ip>
+    /* franka_robot_model_gravity_sfunction: Compute gravity compensation torques g(q)
      * Custom gravity: %<use_custom_gravity>
      * 
      * Inputs:
-     *   Port 0: q (7x1) - Joint positions
-     *   Port 1: m_total (1x1) - Total load mass
-     *   Port 2: F_x_Ctotal (3x1) - Total load CoM
+     *   Port 0: robot_ip (16x1 uint8) - Robot IP address
+     *   Port 1: q (7x1) - Joint positions
+     *   Port 2: m_total (1x1) - Total load mass
+     *   Port 3: F_x_Ctotal (3x1) - Total load CoM
      %if use_custom_gravity
-     *   Port 3: gravity_earth (3x1) - Custom gravity vector
+     *   Port 4: gravity_earth (3x1) - Custom gravity vector
      %endif
      * 
      * Output:
      *   Port 0: gravity (7x1) - Gravity compensation torques [Nm]
      */
     
-    const double* q = %<LibBlockInputSignalAddr(0, "", "", 0)>;
-    double m_total = *%<LibBlockInputSignalAddr(1, "", "", 0)>;
-    const double* F_x_Ctotal = %<LibBlockInputSignalAddr(2, "", "", 0)>;
+    /* Extract robot IP from input port */
+    const uint8_T* robot_ip_u8 = %<LibBlockInputSignalAddr(0, "", "", 0)>;
+    char robot_ip_buf[17];
+    std::memcpy(robot_ip_buf, robot_ip_u8, 16);
+    robot_ip_buf[16] = '\0';
+    std::string robot_ip(robot_ip_buf);
+    
+    const double* q = %<LibBlockInputSignalAddr(1, "", "", 0)>;
+    double m_total = *%<LibBlockInputSignalAddr(2, "", "", 0)>;
+    const double* F_x_Ctotal = %<LibBlockInputSignalAddr(3, "", "", 0)>;
     double* gravity_out = %<LibBlockOutputSignalAddr(0, "", "", 0)>;
     
     %if use_custom_gravity
-        const double* gravity_earth = %<LibBlockInputSignalAddr(3, "", "", 0)>;
+        const double* gravity_earth = %<LibBlockInputSignalAddr(4, "", "", 0)>;
     %else
         const double* gravity_earth = nullptr;  /* Use default {0, 0, -9.81} */
     %endif
     
     /* Compute gravity vector via FrankaRobotManager */
-    if (!FrankaRobotManager::computeGravity("%<robot_ip>",
+    if (!FrankaRobotManager::computeGravity(robot_ip,
                                              q, m_total, F_x_Ctotal, gravity_earth,
                                              gravity_out)) {
         /* Connection failed or computation error - zero output */
@@ -81,6 +87,6 @@
 %% ========================================================================
 %function Terminate(block, system) Output
 {
-    /* franka_robot_model_gravity: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
+    /* franka_robot_model_gravity_sfunction: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
 }
 %endfunction

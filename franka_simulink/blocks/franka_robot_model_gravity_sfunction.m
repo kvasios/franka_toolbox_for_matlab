@@ -1,20 +1,21 @@
 function franka_robot_model_gravity_sfunction(block)
-%FRANKA_ROBOT_MODEL_GRAVITY Compute gravity vector g(q) using libfranka Model
+%FRANKA_ROBOT_MODEL_GRAVITY_SFUNCTION Compute gravity vector g(q) using libfranka Model
 %
 %  This block computes the gravity compensation torques from explicit inputs
 %  using the robot's kinematic/dynamic model. It integrates with FrankaRobotManager
 %  to share the robot connection with other blocks.
 %
 %  Parameters:
-%    robot_ip           - IP address of the Franka robot (for model lookup)
 %    use_custom_gravity - 0 = use default gravity {0,0,-9.81}, 1 = use input
 %
 %  Inputs (use_custom_gravity = 0):
+%    robot_ip   - IP address of the Franka robot (16 ASCII chars)
 %    q          - Joint positions [rad] (7x1)
 %    m_total    - Total load mass [kg] (1x1)
 %    F_x_Ctotal - Total load CoM in flange frame [m] (3x1)
 %
 %  Inputs (use_custom_gravity = 1):
+%    robot_ip      - IP address of the Franka robot (16 ASCII chars)
 %    q             - Joint positions [rad] (7x1)
 %    m_total       - Total load mass [kg] (1x1)
 %    F_x_Ctotal    - Total load CoM in flange frame [m] (3x1)
@@ -37,17 +38,17 @@ setup(block);
 
 function setup(block)
 
-    % Register parameters: robot_ip, use_custom_gravity
-    block.NumDialogPrms     = 2;
-    block.DialogPrmsTunable = {'Nontunable', 'Nontunable'};
+    % Register parameters: use_custom_gravity only
+    block.NumDialogPrms     = 1;
+    block.DialogPrmsTunable = {'Nontunable'};
     
-    use_custom_gravity = boolean(block.DialogPrm(2).Data);
+    use_custom_gravity = boolean(block.DialogPrm(1).Data);
     
     % Determine number of inputs
     if use_custom_gravity
-        numInputs = 4;  % q, m_total, F_x_Ctotal, gravity_earth
+        numInputs = 5;  % robot_ip, q, m_total, F_x_Ctotal, gravity_earth
     else
-        numInputs = 3;  % q, m_total, F_x_Ctotal
+        numInputs = 4;  % robot_ip, q, m_total, F_x_Ctotal
     end
     
     % Register number of ports
@@ -58,30 +59,36 @@ function setup(block)
     block.SetPreCompInpPortInfoToDynamic;
     block.SetPreCompOutPortInfoToDynamic;
 
-    % Input 1: q - Joint positions (7x1)
-    block.InputPort(1).Dimensions  = 7;
-    block.InputPort(1).DatatypeID  = 0;  % double
+    % Input 1: robot_ip - Robot IP address (16 ASCII chars)
+    block.InputPort(1).Dimensions  = 16;
+    block.InputPort(1).DatatypeID  = 3;  % uint8
     block.InputPort(1).Complexity  = 'Real';
     block.InputPort(1).DirectFeedthrough = true;
 
-    % Input 2: m_total - Total load mass (1x1)
-    block.InputPort(2).Dimensions  = 1;
+    % Input 2: q - Joint positions (7x1)
+    block.InputPort(2).Dimensions  = 7;
     block.InputPort(2).DatatypeID  = 0;  % double
     block.InputPort(2).Complexity  = 'Real';
     block.InputPort(2).DirectFeedthrough = true;
 
-    % Input 3: F_x_Ctotal - Total load CoM (3x1)
-    block.InputPort(3).Dimensions  = 3;
+    % Input 3: m_total - Total load mass (1x1)
+    block.InputPort(3).Dimensions  = 1;
     block.InputPort(3).DatatypeID  = 0;  % double
     block.InputPort(3).Complexity  = 'Real';
     block.InputPort(3).DirectFeedthrough = true;
 
-    % Input 4 (optional): gravity_earth - Custom gravity vector (3x1)
+    % Input 4: F_x_Ctotal - Total load CoM (3x1)
+    block.InputPort(4).Dimensions  = 3;
+    block.InputPort(4).DatatypeID  = 0;  % double
+    block.InputPort(4).Complexity  = 'Real';
+    block.InputPort(4).DirectFeedthrough = true;
+
+    % Input 5 (optional): gravity_earth - Custom gravity vector (3x1)
     if use_custom_gravity
-        block.InputPort(4).Dimensions  = 3;
-        block.InputPort(4).DatatypeID  = 0;  % double
-        block.InputPort(4).Complexity  = 'Real';
-        block.InputPort(4).DirectFeedthrough = true;
+        block.InputPort(5).Dimensions  = 3;
+        block.InputPort(5).DatatypeID  = 0;  % double
+        block.InputPort(5).Complexity  = 'Real';
+        block.InputPort(5).DirectFeedthrough = true;
     end
 
     % Output: gravity vector (7x1)
@@ -104,10 +111,10 @@ function setup(block)
     block.RegBlockMethod('Outputs',                 @Outputs);
 
 function CheckPrms(block)
-    % Validate robot_ip parameter
-    robot_ip = block.DialogPrm(1).Data;
-    if ~ischar(robot_ip) && ~isstring(robot_ip)
-        error('robot_ip must be a string');
+    % Validate use_custom_gravity parameter (should be 0 or 1)
+    use_custom_gravity = block.DialogPrm(1).Data;
+    if use_custom_gravity ~= 0 && use_custom_gravity ~= 1
+        error('use_custom_gravity must be 0 or 1');
     end
 
 function DoPostPropSetup(block)
@@ -125,10 +132,5 @@ function Outputs(block)
 
 function WriteRTW(block)
     % Write parameters to RTW file for TLC access
-    robot_ip = block.DialogPrm(1).Data;
-    use_custom_gravity = block.DialogPrm(2).Data;
-    
-    robot_ip = char(['''', robot_ip, '''']);
-    
-    block.WriteRTWParam('string', 'robot_ip', robot_ip);
+    use_custom_gravity = block.DialogPrm(1).Data;
     block.WriteRTWParam('matrix', 'use_custom_gravity', int8(use_custom_gravity));

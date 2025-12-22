@@ -15,6 +15,7 @@
 %function BlockTypeSetup(block, system) void
     %<LibAddToCommonIncludes("franka_robot_api.h")>
     %<LibAddToCommonIncludes("<cstring>")>
+    %<LibAddToCommonIncludes("<string>")>
 %endfunction
 
 %% ========================================================================
@@ -22,7 +23,7 @@
 %% ========================================================================
 %function Start(block, system) Output
 {
-    /* franka_robot_model_coriolis: Initialization
+    /* franka_robot_model_coriolis_sfunction: Initialization
      * 
      * The robot connection is managed lazily by FrankaRobotManager.
      */
@@ -34,33 +35,36 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    %% Extract robot_ip parameter
-    %assign robot_ip = FEVAL("erase", ParamSettings.robot_ip, "'")
-    %assign robot_ip = FEVAL("strtrim", robot_ip)
-    
-    /* franka_robot_model_coriolis: Compute Coriolis force vector c(q,dq)
-     * Robot IP: %<robot_ip>
+    /* franka_robot_model_coriolis_sfunction: Compute Coriolis force vector c(q,dq)
      * 
      * Inputs:
-     *   Port 0: q (7x1) - Joint positions
-     *   Port 1: dq (7x1) - Joint velocities
-     *   Port 2: I_total (9x1) - Total load inertia (3x3 col-major)
-     *   Port 3: m_total (1x1) - Total load mass
-     *   Port 4: F_x_Ctotal (3x1) - Total load CoM
+     *   Port 0: robot_ip (16x1 uint8) - Robot IP address
+     *   Port 1: q (7x1) - Joint positions
+     *   Port 2: dq (7x1) - Joint velocities
+     *   Port 3: I_total (9x1) - Total load inertia (3x3 col-major)
+     *   Port 4: m_total (1x1) - Total load mass
+     *   Port 5: F_x_Ctotal (3x1) - Total load CoM
      * 
      * Output:
      *   Port 0: coriolis (7x1) - Coriolis force vector [Nm]
      */
     
-    const double* q = %<LibBlockInputSignalAddr(0, "", "", 0)>;
-    const double* dq = %<LibBlockInputSignalAddr(1, "", "", 0)>;
-    const double* I_total = %<LibBlockInputSignalAddr(2, "", "", 0)>;
-    double m_total = *%<LibBlockInputSignalAddr(3, "", "", 0)>;
-    const double* F_x_Ctotal = %<LibBlockInputSignalAddr(4, "", "", 0)>;
+    /* Extract robot IP from input port */
+    const uint8_T* robot_ip_u8 = %<LibBlockInputSignalAddr(0, "", "", 0)>;
+    char robot_ip_buf[17];
+    std::memcpy(robot_ip_buf, robot_ip_u8, 16);
+    robot_ip_buf[16] = '\0';
+    std::string robot_ip(robot_ip_buf);
+    
+    const double* q = %<LibBlockInputSignalAddr(1, "", "", 0)>;
+    const double* dq = %<LibBlockInputSignalAddr(2, "", "", 0)>;
+    const double* I_total = %<LibBlockInputSignalAddr(3, "", "", 0)>;
+    double m_total = *%<LibBlockInputSignalAddr(4, "", "", 0)>;
+    const double* F_x_Ctotal = %<LibBlockInputSignalAddr(5, "", "", 0)>;
     double* coriolis_out = %<LibBlockOutputSignalAddr(0, "", "", 0)>;
     
     /* Compute Coriolis vector via FrankaRobotManager */
-    if (!FrankaRobotManager::computeCoriolis("%<robot_ip>",
+    if (!FrankaRobotManager::computeCoriolis(robot_ip,
                                               q, dq, I_total, m_total, F_x_Ctotal,
                                               coriolis_out)) {
         /* Connection failed or computation error - zero output */
@@ -74,6 +78,6 @@
 %% ========================================================================
 %function Terminate(block, system) Output
 {
-    /* franka_robot_model_coriolis: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
+    /* franka_robot_model_coriolis_sfunction: Terminate - cleanup handled by FrankaRobotManager::shutdownAll() */
 }
 %endfunction
