@@ -59,3 +59,35 @@ matlab_add_mex(
      NAME motion_generator_sfunction
      SRC "blocks/motion_generator_sfunction.cpp"
 )
+
+# ============================================================================
+# Robot Model S-Functions (for computing dynamics/kinematics from arbitrary q)
+# ============================================================================
+# These blocks compute model data (mass, coriolis, gravity, jacobian, pose)
+# from explicit joint positions, unlike the franka_robot block which uses
+# the current robot state.
+#
+matlab_add_mex(
+     NAME franka_robot_model_mass_sfunction
+     SRC "blocks/franka_robot_model_mass_sfunction.cpp"
+)
+
+matlab_add_mex(
+     NAME franka_robot_model_coriolis_sfunction
+     SRC "blocks/franka_robot_model_coriolis_sfunction.cpp"
+)
+
+matlab_add_mex(
+     NAME franka_robot_model_gravity_sfunction
+     SRC "blocks/franka_robot_model_gravity_sfunction.cpp"
+)
+
+matlab_add_mex(
+     NAME franka_robot_model_jacobian_sfunction
+     SRC "blocks/franka_robot_model_jacobian_sfunction.cpp"
+)
+
+matlab_add_mex(
+     NAME franka_robot_model_pose_sfunction
+     SRC "blocks/franka_robot_model_pose_sfunction.cpp"
+)
