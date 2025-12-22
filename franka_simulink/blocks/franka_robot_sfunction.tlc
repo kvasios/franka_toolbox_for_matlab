@@ -94,9 +94,23 @@
             %assign ctrlSysIdx = LibBlockParamSetting("Subsystem", "SystemIdx")
         %endwith
 
-        %assign ctrlFcnName = ::CompiledModel.System[ctrlSysIdx].OutputUpdateFcn
-        %if LibIsEqual(ctrlFcnName, "none")
-            %assign ctrlFcnName = ""
+        %% Get the properly mangled function name from FcnInfo records.
+        %% This is critical for ERT targets where identifier length limits
+        %% cause additional truncation beyond what's stored in OutputUpdateFcn.
+        %assign ctrlSys = ::CompiledModel.System[ctrlSysIdx]
+        %assign ctrlFcnName = ""
+        %if LibIsSystemField(ctrlSys, "OutputUpdateFcnInfo")
+            %assign ouFcnInfo = LibGetSystemField(ctrlSys, "OutputUpdateFcnInfo")
+            %if !LibIsEqual(ouFcnInfo, "")
+                %assign ctrlFcnName = ouFcnInfo.Name
+            %endif
+        %endif
+        %% Fallback to OutputFcnInfo if OutputUpdate not found
+        %if LibIsEqual(ctrlFcnName, "") && LibIsSystemField(ctrlSys, "OutputFcnInfo")
+            %assign outFcnInfo = LibGetSystemField(ctrlSys, "OutputFcnInfo")
+            %if !LibIsEqual(outFcnInfo, "")
+                %assign ctrlFcnName = outFcnInfo.Name
+            %endif
         %endif
         %if !LibIsEqual(ctrlFcnName, "")
             %if GenerateClassInterface
@@ -183,14 +197,14 @@
             /*
              * ERROR: Could not resolve a callable entry point for the function-call subsystem.
              *
-             * Simulink may report OutputUpdateFcn as "none" when the targeted subsystem
-             * is inlined or otherwise not generated as a callable function.
+             * This happens when the targeted subsystem is inlined or otherwise not
+             * generated as a callable function (no OutputUpdateFcnInfo or OutputFcnInfo found).
              *
              * Fix in model:
              * - Ensure the function-call subsystem is atomic and generates a callable function
              *   (not fully inlined into step).
              */
-            #error "franka_robot: could not resolve function-call subsystem entry point (OutputUpdateFcn='none'). Make the Controller subsystem callable (not inlined)."
+            #error "franka_robot: could not resolve function-call subsystem entry point (no FcnInfo found). Make the Controller subsystem callable (not inlined)."
         %endif
 
         /* Wire Franka <-> Simulink signals.
@@ -261,36 +275,37 @@
                 %endif
             %endif
 
-            /* Initialize controller model state (atomic Controller subsystem). */
-            %assign ctrlInitFcn = ""
-            %assign ctrlEnableFcn = ""
-            %assign ctrlSysInitFcn = ""
-            %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "InitializeFcn")
-                %assign ctrlInitFcn = ::CompiledModel.System[ctrlSysIdx].InitializeFcn
+            /* Initialize controller model state (atomic Controller subsystem).
+             *
+             * We use LibGetSystemField with "FcnInfo" records to get the properly
+             * mangled function names. This is critical for ERT targets where identifier
+             * length limits cause additional truncation beyond what's stored in
+             * InitializeFcn/EnableFcn fields.
+             */
+            %assign ctrlSys = ::CompiledModel.System[ctrlSysIdx]
+            
+            %% Try Initialize first, fall back to SystemInitialize
+            %assign hasInitialize = TLC_FALSE
+            %if LibIsSystemField(ctrlSys, "InitializeFcnInfo")
+                %assign initFcnInfo = LibGetSystemField(ctrlSys, "InitializeFcnInfo")
+                %if !LibIsEqual(initFcnInfo, "")
+                    %assign hasInitialize = TLC_TRUE
+                    franka_controller_model.%<initFcnInfo.Name>();
+                %endif
             %endif
-            %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "SystemInitializeFcn")
-                %assign ctrlSysInitFcn = ::CompiledModel.System[ctrlSysIdx].SystemInitializeFcn
+            %if !hasInitialize && LibIsSystemField(ctrlSys, "SystemInitializeFcnInfo")
+                %assign sysInitFcnInfo = LibGetSystemField(ctrlSys, "SystemInitializeFcnInfo")
+                %if !LibIsEqual(sysInitFcnInfo, "")
+                    franka_controller_model.%<sysInitFcnInfo.Name>();
+                %endif
             %endif
-            %if ISFIELD(::CompiledModel.System[ctrlSysIdx], "EnableFcn")
-                %assign ctrlEnableFcn = ::CompiledModel.System[ctrlSysIdx].EnableFcn
-            %endif
-            %if FEVAL("strncmp", ctrlInitFcn, "none", 4)
-                %assign ctrlInitFcn = ""
-            %endif
-            %if FEVAL("strncmp", ctrlSysInitFcn, "none", 4)
-                %assign ctrlSysInitFcn = ""
-            %endif
-            %if FEVAL("strncmp", ctrlEnableFcn, "none", 4)
-                %assign ctrlEnableFcn = ""
-            %endif
-            %if !LibIsEqual(ctrlInitFcn, "")
-                franka_controller_model.%<ctrlInitFcn>();
-            %endif
-            %if LibIsEqual(ctrlInitFcn, "") && !LibIsEqual(ctrlSysInitFcn, "")
-                franka_controller_model.%<ctrlSysInitFcn>();
-            %endif
-            %if !LibIsEqual(ctrlEnableFcn, "")
-                franka_controller_model.%<ctrlEnableFcn>();
+            
+            %% Enable function (if exists)
+            %if LibIsSystemField(ctrlSys, "EnableFcnInfo")
+                %assign enableFcnInfo = LibGetSystemField(ctrlSys, "EnableFcnInfo")
+                %if !LibIsEqual(enableFcnInfo, "")
+                    franka_controller_model.%<enableFcnInfo.Name>();
+                %endif
             %endif
 
             /* Set output pointers (robot state + model data + dt_sec) */
