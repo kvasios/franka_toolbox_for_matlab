@@ -49,16 +49,6 @@ function makecfg(objBuildInfo)
         if ispc()
             error('Only building with Jetson Hardware Support package is supported in Windows for the Franka Toolbox!')
         end
-
-        % Configure external mode patch
-        if strcmp(get_param(objBuildInfo.ComponentName, 'HardwareBoard'), 'None')    
-            setTargetProvidesMain(objBuildInfo, true);
-            rt_main_src_idx = find(strcmp({objBuildInfo.Src.Files.FileName}, 'rt_main.cpp'));
-            if rt_main_src_idx
-                objBuildInfo.Src.Files(rt_main_src_idx) = [];
-            end
-            addSourceFiles(objBuildInfo, 'rt_main.cpp', fullfile(franka_installation_path_get(),'franka_simulink','rtw','src'));
-        end
     
         addIncludePaths(objBuildInfo,...
             {fullfile(franka_installation_path_get(),'franka_simulink','include') ...
