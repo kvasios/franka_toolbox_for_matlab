@@ -35,8 +35,8 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    %% Extract parameters
-    %assign frame = ParamSettings.frame[0][0]
+    %% Extract parameters from SFcnParamSettings (written by mdlRTW)
+    %assign frame = SFcnParamSettings.frame
     
     /* franka_robot_model_pose_sfunction: Compute forward kinematics pose
      * Frame: %<frame> (0-6=Joint1-7, 7=Flange, 8=EndEffector, 9=Stiffness)

@@ -142,6 +142,24 @@ static void mdlTerminate(SimStruct *S)
 }
 
 /* ========================================================================
+ * mdlRTW - Write parameters to RTW file for code generation
+ * ======================================================================== */
+#if defined(MATLAB_MEX_FILE)
+#define MDL_RTW
+static void mdlRTW(SimStruct *S)
+{
+    int jacobian_type = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_JACOBIAN_TYPE)));
+    int frame = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_FRAME)));
+    
+    if (!ssWriteRTWParamSettings(S, 2,
+            SSWRITE_VALUE_NUM, "jacobian_type", (real_T)jacobian_type,
+            SSWRITE_VALUE_NUM, "frame", (real_T)frame)) {
+        return;
+    }
+}
+#endif
+
+/* ========================================================================
  * Required S-function trailer
  * ======================================================================== */
 #ifdef MATLAB_MEX_FILE
@@ -149,3 +167,4 @@ static void mdlTerminate(SimStruct *S)
 #else
 #include "cg_sfun.h"
 #endif
+

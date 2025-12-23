@@ -35,9 +35,9 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    %% Extract parameters
-    %assign jacobian_type = ParamSettings.jacobian_type[0][0]
-    %assign frame = ParamSettings.frame[0][0]
+    %% Extract parameters from SFcnParamSettings (written by mdlRTW)
+    %assign jacobian_type = SFcnParamSettings.jacobian_type
+    %assign frame = SFcnParamSettings.frame
     
     /* franka_robot_model_jacobian_sfunction: Compute Jacobian matrix
      * Jacobian type: %<jacobian_type> (0=zero/base, 1=body)

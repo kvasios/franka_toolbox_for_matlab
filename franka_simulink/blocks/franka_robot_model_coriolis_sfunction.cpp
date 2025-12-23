@@ -155,3 +155,4 @@ static void mdlTerminate(SimStruct *S)
 #else
 #include "cg_sfun.h"
 #endif
+

@@ -155,6 +155,22 @@ static void mdlTerminate(SimStruct *S)
 }
 
 /* ========================================================================
+ * mdlRTW - Write parameters to RTW file for code generation
+ * ======================================================================== */
+#if defined(MATLAB_MEX_FILE)
+#define MDL_RTW
+static void mdlRTW(SimStruct *S)
+{
+    int use_custom_gravity = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_USE_CUSTOM_GRAVITY)));
+    
+    if (!ssWriteRTWParamSettings(S, 1,
+            SSWRITE_VALUE_NUM, "use_custom_gravity", (real_T)use_custom_gravity)) {
+        return;
+    }
+}
+#endif
+
+/* ========================================================================
  * Required S-function trailer
  * ======================================================================== */
 #ifdef MATLAB_MEX_FILE
@@ -162,3 +178,4 @@ static void mdlTerminate(SimStruct *S)
 #else
 #include "cg_sfun.h"
 #endif
+

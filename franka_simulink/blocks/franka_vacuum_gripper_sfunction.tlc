@@ -165,3 +165,4 @@
     FrankaVacuumGripperManager::shutdownAll();
 }
 %endfunction
+

@@ -144,6 +144,22 @@ static void mdlTerminate(SimStruct *S)
 }
 
 /* ========================================================================
+ * mdlRTW - Write parameters to RTW file for code generation
+ * ======================================================================== */
+#if defined(MATLAB_MEX_FILE)
+#define MDL_RTW
+static void mdlRTW(SimStruct *S)
+{
+    int frame = static_cast<int>(mxGetScalar(ssGetSFcnParam(S, PARAM_FRAME)));
+    
+    if (!ssWriteRTWParamSettings(S, 1,
+            SSWRITE_VALUE_NUM, "frame", (real_T)frame)) {
+        return;
+    }
+}
+#endif
+
+/* ========================================================================
  * Required S-function trailer
  * ======================================================================== */
 #ifdef MATLAB_MEX_FILE
@@ -151,3 +167,4 @@ static void mdlTerminate(SimStruct *S)
 #else
 #include "cg_sfun.h"
 #endif
+

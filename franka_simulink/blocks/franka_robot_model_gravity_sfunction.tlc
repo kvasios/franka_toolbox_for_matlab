@@ -35,8 +35,8 @@
 %% ========================================================================
 %function Outputs(block, system) Output
 {
-    %% Extract parameters
-    %assign use_custom_gravity = ParamSettings.use_custom_gravity[0][0]
+    %% Extract parameters from SFcnParamSettings (written by mdlRTW)
+    %assign use_custom_gravity = SFcnParamSettings.use_custom_gravity
     
     /* franka_robot_model_gravity_sfunction: Compute gravity compensation torques g(q)
      * Custom gravity: %<use_custom_gravity>
