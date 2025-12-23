@@ -26,6 +26,15 @@ Server binaries are built using Docker, which handles all dependencies automatic
     ./build.sh amd64        # x86_64 only
     ./build.sh arm64        # ARM64 only (cross-compiled)
 
+**Building against a specific libfranka version:**
+
+The Docker build script supports selecting the libfranka version explicitly via ``--libfranka`` (otherwise it defaults to the version specified in ``config/libfranka_ver.csv``):
+
+.. code-block:: bash
+
+    cd docker
+    ./build.sh amd64 --libfranka 0.9.2
+
 **Output files:**
 
 - ``franka_robot_server/bin.tar.gz``, ``franka_robot_server/bin_arm.tar.gz`` — Server executable
