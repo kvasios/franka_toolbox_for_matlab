@@ -549,6 +549,20 @@
         /* Normal case: not starting or stopping, just track enable state */
         %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
     }
+    
+    /* ====================================================================
+     * Always publish connection status to outputs
+     * 
+     * This ensures the Simulink user can see connection errors even when
+     * no control loop is running (e.g., failed to connect on startup).
+     * ==================================================================== */
+    {
+        FrankaRobotStateBus* state_out = reinterpret_cast<FrankaRobotStateBus*>(
+            %<LibBlockOutputSignalAddr(1, "", "", 0)>
+        );
+        state_out->connection_status = %<ctxName>.getConnectionStatus();
+        state_out->last_connection_error_code = %<ctxName>.getLastConnectionErrorCode();
+    }
 }
 %endfunction
 

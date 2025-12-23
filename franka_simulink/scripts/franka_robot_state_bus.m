@@ -307,6 +307,23 @@ function bus = franka_robot_state_bus()
         'Time since robot start [s]');
     
     %% ====================================================================
+    %% Connection Status (Simulink block lifecycle, not from libfranka)
+    %% ====================================================================
+    
+    % connection_status: Connection lifecycle state (FrankaConnectionStatus enum)
+    % 0=Disconnected, 1=Connecting, 2=Connected, 3=ControlRunning, 4=Error
+    idx = idx + 1;
+    elems(idx) = create_element('connection_status', [1 1], 'int32', ...
+        'Connection status (use FrankaConnectionStatus enum for display)');
+    
+    % last_connection_error_code: Last connection error type (FrankaConnectionErrorCode enum)
+    % 0=None, 1=Network, 2=Protocol, 3=IncompatibleVersion, 4=Control, 
+    % 5=Command, 6=Realtime, 7=InvalidOperation, 8=Model, 9=Unknown
+    idx = idx + 1;
+    elems(idx) = create_element('last_connection_error_code', [1 1], 'int32', ...
+        'Last connection error (use FrankaConnectionErrorCode enum for display)');
+    
+    %% ====================================================================
     %% Create the Bus
     %% ====================================================================
     

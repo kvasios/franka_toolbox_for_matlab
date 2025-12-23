@@ -591,6 +591,15 @@ private:
     const double* O_T_EE_d_in_{nullptr};
     const double* O_dP_EE_d_in_{nullptr};
     const double* elbow_d_in_{nullptr};
+    
+    // Connection status tracking (published to Simulink for visibility)
+    std::atomic<int32_t> connection_status_{FRANKA_CONNECTION_DISCONNECTED};
+    std::atomic<int32_t> last_connection_error_code_{FRANKA_CONNECTION_ERROR_NONE};
+    
+public:
+    // Getters for connection status (for publishing even when not connected)
+    int32_t getConnectionStatus() const { return connection_status_.load(); }
+    int32_t getLastConnectionErrorCode() const { return last_connection_error_code_.load(); }
 };
 
 #endif // FRANKA_ROBOT_API_H

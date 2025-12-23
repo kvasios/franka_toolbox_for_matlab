@@ -12,6 +12,10 @@ function franka_setup_bus()
 %       - FrankaErrorsBus: Error flags (nested in FrankaRobotStateBus)
 %       - FrankaModelDataBus: Computed dynamics/kinematics M, c, g, J (output)
 %       - FrankaRobotSettingsBus: Robot configuration settings (input)
+%
+%   Related enumerations (for Simulink Data Type Conversion blocks):
+%       - FrankaConnectionStatus: Connection lifecycle (Disconnected, Connected, etc.)
+%       - FrankaConnectionErrorCode: Error codes (None, Network, Control, etc.)
 %     Gripper (Finger):
 %       - FrankaGripperStateBus: Gripper state with command status (output)
 %       - FrankaGripperCommandBus: Gripper command parameters (input)
@@ -41,7 +45,8 @@ function franka_setup_bus()
 %
 %   See also: franka_robot_state_bus, franka_errors_bus, franka_model_data_bus, 
 %             franka_robot_settings_bus, franka_gripper_state_bus,
-%             franka_gripper_command_bus, Simulink.Bus
+%             franka_gripper_command_bus, FrankaConnectionStatus,
+%             FrankaConnectionErrorCode, Simulink.Bus
 %
 %   Copyright (c) 2025 Franka Robotics GmbH
 

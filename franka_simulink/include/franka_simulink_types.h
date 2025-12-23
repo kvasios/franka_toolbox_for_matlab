@@ -200,6 +200,13 @@ struct FrankaRobotStateBus {
     double control_command_success_rate;  ///< Command success rate [0-1]
     int32_t robot_mode;                   ///< Robot mode (see RobotMode enum)
     double time;                          ///< Time since robot start [s]
+    
+    // ========================================================================
+    // Connection Status (Simulink block lifecycle, not from libfranka)
+    // ========================================================================
+    
+    int32_t connection_status;            ///< Connection lifecycle (see FrankaConnectionStatus)
+    int32_t last_connection_error_code;   ///< Last connection error type (see FrankaConnectionErrorCode)
 };
 
 /**
@@ -215,6 +222,41 @@ enum FrankaRobotMode {
     FRANKA_ROBOT_MODE_REFLEX = 4,
     FRANKA_ROBOT_MODE_USER_STOPPED = 5,
     FRANKA_ROBOT_MODE_AUTOMATIC_ERROR_RECOVERY = 6
+};
+
+/**
+ * @brief Connection status enumeration
+ * 
+ * Tracks the lifecycle state of the robot connection from Simulink's perspective.
+ * This allows the user to see what's happening even before a successful connection.
+ */
+enum FrankaConnectionStatus {
+    FRANKA_CONNECTION_DISCONNECTED = 0,     ///< Not connected, not attempting
+    FRANKA_CONNECTION_CONNECTING = 1,       ///< Connection attempt in progress
+    FRANKA_CONNECTION_CONNECTED = 2,        ///< Successfully connected, idle
+    FRANKA_CONNECTION_CONTROL_RUNNING = 3,  ///< Active control loop running
+    FRANKA_CONNECTION_ERROR = 4             ///< Last operation failed (see error_code)
+};
+
+/**
+ * @brief Connection error code enumeration for libfranka exceptions
+ * 
+ * Maps libfranka exception types to integer codes for Simulink visibility.
+ * When connection_status is FRANKA_CONNECTION_ERROR, this indicates the cause.
+ * 
+ * See also: FrankaConnectionErrorCode.m for MATLAB enumeration
+ */
+enum FrankaConnectionErrorCode {
+    FRANKA_CONNECTION_ERROR_NONE = 0,                  ///< No error
+    FRANKA_CONNECTION_ERROR_NETWORK = 1,               ///< NetworkException: Connection/timeout error
+    FRANKA_CONNECTION_ERROR_PROTOCOL = 2,              ///< ProtocolException: Invalid robot response
+    FRANKA_CONNECTION_ERROR_INCOMPATIBLE_VERSION = 3,  ///< IncompatibleVersionException: Version mismatch
+    FRANKA_CONNECTION_ERROR_CONTROL = 4,               ///< ControlException: Motion/torque control error
+    FRANKA_CONNECTION_ERROR_COMMAND = 5,               ///< CommandException: Command execution error
+    FRANKA_CONNECTION_ERROR_REALTIME = 6,              ///< RealtimeException: RT priority failed
+    FRANKA_CONNECTION_ERROR_INVALID_OPERATION = 7,     ///< InvalidOperationException: Invalid operation
+    FRANKA_CONNECTION_ERROR_MODEL = 8,                 ///< ModelException: Model loading error
+    FRANKA_CONNECTION_ERROR_UNKNOWN = 9                ///< Unknown/other exception
 };
 
 /**

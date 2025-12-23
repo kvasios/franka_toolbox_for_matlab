@@ -504,6 +504,11 @@ void FrankaRobotInstance::copyRobotState(const franka::RobotState& src,
     dst->robot_mode = static_cast<int32_t>(src.robot_mode);
     dst->time = src.time.toSec();
     
+    // Connection status (if we got here via readOnce, we're connected)
+    // Note: Context's copyRobotState has more accurate tracking
+    dst->connection_status = FRANKA_CONNECTION_CONNECTED;
+    dst->last_connection_error_code = FRANKA_CONNECTION_ERROR_NONE;
+    
     #undef COPY_ARRAY
 }
 
@@ -903,9 +908,35 @@ void FrankaRobotContext::initialize(const std::string& robot_ip) {
         shutdown();
     }
     
+    connection_status_.store(FRANKA_CONNECTION_CONNECTING);
+    
     try {
         instance_ = FrankaRobotManager::getOrCreate(robot_ip);
+        connection_status_.store(FRANKA_CONNECTION_CONNECTED);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_NONE);
+    } catch (const franka::NetworkException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_NETWORK);
+        std::cerr << "FrankaRobotContext: Failed to initialize: " << e.what() << std::endl;
+        throw;
+    } catch (const franka::ProtocolException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_PROTOCOL);
+        std::cerr << "FrankaRobotContext: Failed to initialize: " << e.what() << std::endl;
+        throw;
+    } catch (const franka::IncompatibleVersionException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_INCOMPATIBLE_VERSION);
+        std::cerr << "FrankaRobotContext: Failed to initialize: " << e.what() << std::endl;
+        throw;
+    } catch (const franka::ModelException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_MODEL);
+        std::cerr << "FrankaRobotContext: Failed to initialize: " << e.what() << std::endl;
+        throw;
     } catch (const franka::Exception& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_UNKNOWN);
         std::cerr << "FrankaRobotContext: Failed to initialize: " << e.what() << std::endl;
         throw;
     }
@@ -937,6 +968,10 @@ void FrankaRobotContext::shutdown() {
     
     // Don't release instance_ here - the manager owns it
     // Other blocks may still be using it
+    
+    // Update status to disconnected
+    connection_status_.store(FRANKA_CONNECTION_DISCONNECTED);
+    instance_ = nullptr;
 }
 
 // I/O Pointer Setters
@@ -1048,6 +1083,7 @@ void FrankaRobotContext::startControl() {
     publishStateOnce(0.0);
     
     running_ = true;
+    connection_status_.store(FRANKA_CONNECTION_CONTROL_RUNNING);
     control_thread_ = std::thread(&FrankaRobotContext::controlThreadFunc, this);
 }
 
@@ -1319,16 +1355,43 @@ void FrankaRobotContext::controlThreadFunc() {
                 );
                 break;
         }
-    } catch (const franka::Exception& e) {
+    } catch (const franka::ControlException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_CONTROL);
         std::cerr << "FrankaRobotContext: Control exception: " << e.what() << std::endl;
+    } catch (const franka::CommandException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_COMMAND);
+        std::cerr << "FrankaRobotContext: Command exception: " << e.what() << std::endl;
+    } catch (const franka::NetworkException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_NETWORK);
+        std::cerr << "FrankaRobotContext: Network exception: " << e.what() << std::endl;
+    } catch (const franka::RealtimeException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_REALTIME);
+        std::cerr << "FrankaRobotContext: Realtime exception: " << e.what() << std::endl;
+    } catch (const franka::InvalidOperationException& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_INVALID_OPERATION);
+        std::cerr << "FrankaRobotContext: Invalid operation exception: " << e.what() << std::endl;
+    } catch (const franka::Exception& e) {
+        connection_status_.store(FRANKA_CONNECTION_ERROR);
+        last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_UNKNOWN);
+        std::cerr << "FrankaRobotContext: Exception: " << e.what() << std::endl;
     }
 
     // Publish boundary state AFTER robot.control() ends
     publishStateOnce(0.0);
     
-    // Release control
+    // Release control and update status (unless we already set ERROR)
     instance_->releaseControl(this);
     running_ = false;
+    
+    // If no error occurred, transition back to CONNECTED state
+    if (connection_status_.load() == FRANKA_CONNECTION_CONTROL_RUNNING) {
+        connection_status_.store(FRANKA_CONNECTION_CONNECTED);
+    }
 }
 
 // ============================================================================
@@ -1790,6 +1853,10 @@ void FrankaRobotContext::copyRobotState(const franka::RobotState& src,
     dst->control_command_success_rate = src.control_command_success_rate;
     dst->robot_mode = static_cast<int32_t>(src.robot_mode);
     dst->time = src.time.toSec();
+    
+    // Connection status (from context, not from libfranka)
+    dst->connection_status = connection_status_.load();
+    dst->last_connection_error_code = last_connection_error_code_.load();
     
     #undef COPY_ARRAY
 }
