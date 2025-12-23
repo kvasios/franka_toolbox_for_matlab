@@ -273,6 +273,20 @@ function bus = franka_robot_state_bus()
         'Commanded EE acceleration in base frame [m/s^2, rad/s^2]');
     
     %% ====================================================================
+    %% Error State (franka::Errors)
+    %% ====================================================================
+    
+    % current_errors: Current error state (41 boolean flags)
+    idx = idx + 1;
+    elems(idx) = create_bus_element('current_errors', 'FrankaErrorsBus', ...
+        'Current error state (41 boolean flags)');
+    
+    % last_motion_errors: Errors that aborted the previous motion (41 boolean flags)
+    idx = idx + 1;
+    elems(idx) = create_bus_element('last_motion_errors', 'FrankaErrorsBus', ...
+        'Errors that aborted previous motion (41 boolean flags)');
+    
+    %% ====================================================================
     %% Status Signals
     %% ====================================================================
     
@@ -312,6 +326,17 @@ function elem = create_element(name, dims, datatype, description)
     elem.Name = name;
     elem.Dimensions = dims;
     elem.DataType = datatype;
+    elem.Description = description;
+    elem.Complexity = 'real';
+    elem.SamplingMode = 'Sample based';
+end
+
+function elem = create_bus_element(name, busType, description)
+%CREATE_BUS_ELEMENT Helper to create a nested bus Simulink.BusElement
+    elem = Simulink.BusElement();
+    elem.Name = name;
+    elem.Dimensions = [1 1];
+    elem.DataType = ['Bus: ' busType];
     elem.Description = description;
     elem.Complexity = 'real';
     elem.SamplingMode = 'Sample based';

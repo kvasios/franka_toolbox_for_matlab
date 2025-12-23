@@ -14,6 +14,75 @@
 #include <cstdint>
 
 /**
+ * @brief C struct matching FrankaErrorsBus Simulink bus
+ * 
+ * Contains 41 boolean error flags from franka::Errors.
+ * Multiple errors can be active simultaneously.
+ * 
+ * IMPORTANT: Field order MUST match franka_errors_bus.m exactly!
+ */
+struct FrankaErrorsBus {
+    // Position and Velocity Limit Violations
+    uint8_t joint_position_limits_violation;
+    uint8_t cartesian_position_limits_violation;
+    uint8_t self_collision_avoidance_violation;
+    uint8_t joint_velocity_violation;
+    uint8_t cartesian_velocity_violation;
+    
+    // Force and Collision Detection
+    uint8_t force_control_safety_violation;
+    uint8_t joint_reflex;
+    uint8_t cartesian_reflex;
+    
+    // Internal Motion Generator Errors
+    uint8_t max_goal_pose_deviation_violation;
+    uint8_t max_path_pose_deviation_violation;
+    uint8_t cartesian_velocity_profile_safety_violation;
+    
+    // Joint Motion Generator Errors
+    uint8_t joint_position_motion_generator_start_pose_invalid;
+    uint8_t joint_motion_generator_position_limits_violation;
+    uint8_t joint_motion_generator_velocity_limits_violation;
+    uint8_t joint_motion_generator_velocity_discontinuity;
+    uint8_t joint_motion_generator_acceleration_discontinuity;
+    
+    // Cartesian Motion Generator Errors
+    uint8_t cartesian_position_motion_generator_start_pose_invalid;
+    uint8_t cartesian_motion_generator_elbow_limit_violation;
+    uint8_t cartesian_motion_generator_velocity_limits_violation;
+    uint8_t cartesian_motion_generator_velocity_discontinuity;
+    uint8_t cartesian_motion_generator_acceleration_discontinuity;
+    uint8_t cartesian_motion_generator_elbow_sign_inconsistent;
+    uint8_t cartesian_motion_generator_start_elbow_invalid;
+    uint8_t cartesian_motion_generator_joint_position_limits_violation;
+    uint8_t cartesian_motion_generator_joint_velocity_limits_violation;
+    uint8_t cartesian_motion_generator_joint_velocity_discontinuity;
+    uint8_t cartesian_motion_generator_joint_acceleration_discontinuity;
+    uint8_t cartesian_position_motion_generator_invalid_frame;
+    
+    // Controller and Communication Errors
+    uint8_t force_controller_desired_force_tolerance_violation;
+    uint8_t controller_torque_discontinuity;
+    uint8_t start_elbow_sign_inconsistent;
+    uint8_t communication_constraints_violation;
+    uint8_t power_limit_violation;
+    
+    // Planning and System Errors
+    uint8_t joint_p2p_insufficient_torque_for_planning;
+    uint8_t tau_j_range_violation;
+    uint8_t instability_detected;
+    uint8_t joint_move_in_wrong_direction;
+    
+    // Spline and Via Point Motion Errors
+    uint8_t cartesian_spline_motion_generator_violation;
+    uint8_t joint_via_motion_generator_planning_joint_limit_violation;
+    
+    // Base Acceleration Errors
+    uint8_t base_acceleration_initialization_timeout;
+    uint8_t base_acceleration_invalid_reading;
+};
+
+/**
  * @brief C struct matching FrankaRobotStateBus Simulink bus
  * 
  * This struct mirrors franka::RobotState but with plain arrays instead of
@@ -116,6 +185,13 @@ struct FrankaRobotStateBus {
     double O_ddP_O[3];      ///< Base linear acceleration [m/s^2]
     double O_dP_EE_c[6];    ///< Commanded EE twist [m/s, rad/s]
     double O_ddP_EE_c[6];   ///< Commanded EE acceleration [m/s^2, rad/s^2]
+    
+    // ========================================================================
+    // Error State (franka::Errors)
+    // ========================================================================
+    
+    FrankaErrorsBus current_errors;      ///< Current error state (41 boolean flags)
+    FrankaErrorsBus last_motion_errors;  ///< Errors that aborted previous motion
     
     // ========================================================================
     // Status Signals

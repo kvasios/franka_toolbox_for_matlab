@@ -390,6 +390,115 @@ void FrankaRobotInstance::copyRobotState(const franka::RobotState& src,
     COPY_ARRAY(O_dP_EE_c);
     COPY_ARRAY(O_ddP_EE_c);
     
+    // Error State (franka::Errors -> FrankaErrorsBus)
+    #define COPY_ERROR(field) dst->current_errors.field = src.current_errors.field ? 1 : 0
+    #define COPY_LAST_ERROR(field) dst->last_motion_errors.field = src.last_motion_errors.field ? 1 : 0
+    
+    // Position and Velocity Limit Violations
+    COPY_ERROR(joint_position_limits_violation);
+    COPY_ERROR(cartesian_position_limits_violation);
+    COPY_ERROR(self_collision_avoidance_violation);
+    COPY_ERROR(joint_velocity_violation);
+    COPY_ERROR(cartesian_velocity_violation);
+    
+    // Force and Collision Detection
+    COPY_ERROR(force_control_safety_violation);
+    COPY_ERROR(joint_reflex);
+    COPY_ERROR(cartesian_reflex);
+    
+    // Internal Motion Generator Errors
+    COPY_ERROR(max_goal_pose_deviation_violation);
+    COPY_ERROR(max_path_pose_deviation_violation);
+    COPY_ERROR(cartesian_velocity_profile_safety_violation);
+    
+    // Joint Motion Generator Errors
+    COPY_ERROR(joint_position_motion_generator_start_pose_invalid);
+    COPY_ERROR(joint_motion_generator_position_limits_violation);
+    COPY_ERROR(joint_motion_generator_velocity_limits_violation);
+    COPY_ERROR(joint_motion_generator_velocity_discontinuity);
+    COPY_ERROR(joint_motion_generator_acceleration_discontinuity);
+    
+    // Cartesian Motion Generator Errors
+    COPY_ERROR(cartesian_position_motion_generator_start_pose_invalid);
+    COPY_ERROR(cartesian_motion_generator_elbow_limit_violation);
+    COPY_ERROR(cartesian_motion_generator_velocity_limits_violation);
+    COPY_ERROR(cartesian_motion_generator_velocity_discontinuity);
+    COPY_ERROR(cartesian_motion_generator_acceleration_discontinuity);
+    COPY_ERROR(cartesian_motion_generator_elbow_sign_inconsistent);
+    COPY_ERROR(cartesian_motion_generator_start_elbow_invalid);
+    COPY_ERROR(cartesian_motion_generator_joint_position_limits_violation);
+    COPY_ERROR(cartesian_motion_generator_joint_velocity_limits_violation);
+    COPY_ERROR(cartesian_motion_generator_joint_velocity_discontinuity);
+    COPY_ERROR(cartesian_motion_generator_joint_acceleration_discontinuity);
+    COPY_ERROR(cartesian_position_motion_generator_invalid_frame);
+    
+    // Controller and Communication Errors
+    COPY_ERROR(force_controller_desired_force_tolerance_violation);
+    COPY_ERROR(controller_torque_discontinuity);
+    COPY_ERROR(start_elbow_sign_inconsistent);
+    COPY_ERROR(communication_constraints_violation);
+    COPY_ERROR(power_limit_violation);
+    
+    // Planning and System Errors
+    COPY_ERROR(joint_p2p_insufficient_torque_for_planning);
+    COPY_ERROR(tau_j_range_violation);
+    COPY_ERROR(instability_detected);
+    COPY_ERROR(joint_move_in_wrong_direction);
+    
+    // Spline and Via Point Motion Errors
+    COPY_ERROR(cartesian_spline_motion_generator_violation);
+    COPY_ERROR(joint_via_motion_generator_planning_joint_limit_violation);
+    
+    // Base Acceleration Errors
+    COPY_ERROR(base_acceleration_initialization_timeout);
+    COPY_ERROR(base_acceleration_invalid_reading);
+    
+    // Copy last_motion_errors (same fields)
+    COPY_LAST_ERROR(joint_position_limits_violation);
+    COPY_LAST_ERROR(cartesian_position_limits_violation);
+    COPY_LAST_ERROR(self_collision_avoidance_violation);
+    COPY_LAST_ERROR(joint_velocity_violation);
+    COPY_LAST_ERROR(cartesian_velocity_violation);
+    COPY_LAST_ERROR(force_control_safety_violation);
+    COPY_LAST_ERROR(joint_reflex);
+    COPY_LAST_ERROR(cartesian_reflex);
+    COPY_LAST_ERROR(max_goal_pose_deviation_violation);
+    COPY_LAST_ERROR(max_path_pose_deviation_violation);
+    COPY_LAST_ERROR(cartesian_velocity_profile_safety_violation);
+    COPY_LAST_ERROR(joint_position_motion_generator_start_pose_invalid);
+    COPY_LAST_ERROR(joint_motion_generator_position_limits_violation);
+    COPY_LAST_ERROR(joint_motion_generator_velocity_limits_violation);
+    COPY_LAST_ERROR(joint_motion_generator_velocity_discontinuity);
+    COPY_LAST_ERROR(joint_motion_generator_acceleration_discontinuity);
+    COPY_LAST_ERROR(cartesian_position_motion_generator_start_pose_invalid);
+    COPY_LAST_ERROR(cartesian_motion_generator_elbow_limit_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_velocity_limits_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_velocity_discontinuity);
+    COPY_LAST_ERROR(cartesian_motion_generator_acceleration_discontinuity);
+    COPY_LAST_ERROR(cartesian_motion_generator_elbow_sign_inconsistent);
+    COPY_LAST_ERROR(cartesian_motion_generator_start_elbow_invalid);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_position_limits_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_velocity_limits_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_velocity_discontinuity);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_acceleration_discontinuity);
+    COPY_LAST_ERROR(cartesian_position_motion_generator_invalid_frame);
+    COPY_LAST_ERROR(force_controller_desired_force_tolerance_violation);
+    COPY_LAST_ERROR(controller_torque_discontinuity);
+    COPY_LAST_ERROR(start_elbow_sign_inconsistent);
+    COPY_LAST_ERROR(communication_constraints_violation);
+    COPY_LAST_ERROR(power_limit_violation);
+    COPY_LAST_ERROR(joint_p2p_insufficient_torque_for_planning);
+    COPY_LAST_ERROR(tau_j_range_violation);
+    COPY_LAST_ERROR(instability_detected);
+    COPY_LAST_ERROR(joint_move_in_wrong_direction);
+    COPY_LAST_ERROR(cartesian_spline_motion_generator_violation);
+    COPY_LAST_ERROR(joint_via_motion_generator_planning_joint_limit_violation);
+    COPY_LAST_ERROR(base_acceleration_initialization_timeout);
+    COPY_LAST_ERROR(base_acceleration_invalid_reading);
+    
+    #undef COPY_ERROR
+    #undef COPY_LAST_ERROR
+    
     // Status Signals
     dst->control_command_success_rate = src.control_command_success_rate;
     dst->robot_mode = static_cast<int32_t>(src.robot_mode);
@@ -1568,6 +1677,115 @@ void FrankaRobotContext::copyRobotState(const franka::RobotState& src,
     COPY_ARRAY(O_ddP_O);
     COPY_ARRAY(O_dP_EE_c);
     COPY_ARRAY(O_ddP_EE_c);
+    
+    // Error State (franka::Errors -> FrankaErrorsBus)
+    #define COPY_ERROR(field) dst->current_errors.field = src.current_errors.field ? 1 : 0
+    #define COPY_LAST_ERROR(field) dst->last_motion_errors.field = src.last_motion_errors.field ? 1 : 0
+    
+    // Position and Velocity Limit Violations
+    COPY_ERROR(joint_position_limits_violation);
+    COPY_ERROR(cartesian_position_limits_violation);
+    COPY_ERROR(self_collision_avoidance_violation);
+    COPY_ERROR(joint_velocity_violation);
+    COPY_ERROR(cartesian_velocity_violation);
+    
+    // Force and Collision Detection
+    COPY_ERROR(force_control_safety_violation);
+    COPY_ERROR(joint_reflex);
+    COPY_ERROR(cartesian_reflex);
+    
+    // Internal Motion Generator Errors
+    COPY_ERROR(max_goal_pose_deviation_violation);
+    COPY_ERROR(max_path_pose_deviation_violation);
+    COPY_ERROR(cartesian_velocity_profile_safety_violation);
+    
+    // Joint Motion Generator Errors
+    COPY_ERROR(joint_position_motion_generator_start_pose_invalid);
+    COPY_ERROR(joint_motion_generator_position_limits_violation);
+    COPY_ERROR(joint_motion_generator_velocity_limits_violation);
+    COPY_ERROR(joint_motion_generator_velocity_discontinuity);
+    COPY_ERROR(joint_motion_generator_acceleration_discontinuity);
+    
+    // Cartesian Motion Generator Errors
+    COPY_ERROR(cartesian_position_motion_generator_start_pose_invalid);
+    COPY_ERROR(cartesian_motion_generator_elbow_limit_violation);
+    COPY_ERROR(cartesian_motion_generator_velocity_limits_violation);
+    COPY_ERROR(cartesian_motion_generator_velocity_discontinuity);
+    COPY_ERROR(cartesian_motion_generator_acceleration_discontinuity);
+    COPY_ERROR(cartesian_motion_generator_elbow_sign_inconsistent);
+    COPY_ERROR(cartesian_motion_generator_start_elbow_invalid);
+    COPY_ERROR(cartesian_motion_generator_joint_position_limits_violation);
+    COPY_ERROR(cartesian_motion_generator_joint_velocity_limits_violation);
+    COPY_ERROR(cartesian_motion_generator_joint_velocity_discontinuity);
+    COPY_ERROR(cartesian_motion_generator_joint_acceleration_discontinuity);
+    COPY_ERROR(cartesian_position_motion_generator_invalid_frame);
+    
+    // Controller and Communication Errors
+    COPY_ERROR(force_controller_desired_force_tolerance_violation);
+    COPY_ERROR(controller_torque_discontinuity);
+    COPY_ERROR(start_elbow_sign_inconsistent);
+    COPY_ERROR(communication_constraints_violation);
+    COPY_ERROR(power_limit_violation);
+    
+    // Planning and System Errors
+    COPY_ERROR(joint_p2p_insufficient_torque_for_planning);
+    COPY_ERROR(tau_j_range_violation);
+    COPY_ERROR(instability_detected);
+    COPY_ERROR(joint_move_in_wrong_direction);
+    
+    // Spline and Via Point Motion Errors
+    COPY_ERROR(cartesian_spline_motion_generator_violation);
+    COPY_ERROR(joint_via_motion_generator_planning_joint_limit_violation);
+    
+    // Base Acceleration Errors
+    COPY_ERROR(base_acceleration_initialization_timeout);
+    COPY_ERROR(base_acceleration_invalid_reading);
+    
+    // Copy last_motion_errors (same fields)
+    COPY_LAST_ERROR(joint_position_limits_violation);
+    COPY_LAST_ERROR(cartesian_position_limits_violation);
+    COPY_LAST_ERROR(self_collision_avoidance_violation);
+    COPY_LAST_ERROR(joint_velocity_violation);
+    COPY_LAST_ERROR(cartesian_velocity_violation);
+    COPY_LAST_ERROR(force_control_safety_violation);
+    COPY_LAST_ERROR(joint_reflex);
+    COPY_LAST_ERROR(cartesian_reflex);
+    COPY_LAST_ERROR(max_goal_pose_deviation_violation);
+    COPY_LAST_ERROR(max_path_pose_deviation_violation);
+    COPY_LAST_ERROR(cartesian_velocity_profile_safety_violation);
+    COPY_LAST_ERROR(joint_position_motion_generator_start_pose_invalid);
+    COPY_LAST_ERROR(joint_motion_generator_position_limits_violation);
+    COPY_LAST_ERROR(joint_motion_generator_velocity_limits_violation);
+    COPY_LAST_ERROR(joint_motion_generator_velocity_discontinuity);
+    COPY_LAST_ERROR(joint_motion_generator_acceleration_discontinuity);
+    COPY_LAST_ERROR(cartesian_position_motion_generator_start_pose_invalid);
+    COPY_LAST_ERROR(cartesian_motion_generator_elbow_limit_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_velocity_limits_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_velocity_discontinuity);
+    COPY_LAST_ERROR(cartesian_motion_generator_acceleration_discontinuity);
+    COPY_LAST_ERROR(cartesian_motion_generator_elbow_sign_inconsistent);
+    COPY_LAST_ERROR(cartesian_motion_generator_start_elbow_invalid);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_position_limits_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_velocity_limits_violation);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_velocity_discontinuity);
+    COPY_LAST_ERROR(cartesian_motion_generator_joint_acceleration_discontinuity);
+    COPY_LAST_ERROR(cartesian_position_motion_generator_invalid_frame);
+    COPY_LAST_ERROR(force_controller_desired_force_tolerance_violation);
+    COPY_LAST_ERROR(controller_torque_discontinuity);
+    COPY_LAST_ERROR(start_elbow_sign_inconsistent);
+    COPY_LAST_ERROR(communication_constraints_violation);
+    COPY_LAST_ERROR(power_limit_violation);
+    COPY_LAST_ERROR(joint_p2p_insufficient_torque_for_planning);
+    COPY_LAST_ERROR(tau_j_range_violation);
+    COPY_LAST_ERROR(instability_detected);
+    COPY_LAST_ERROR(joint_move_in_wrong_direction);
+    COPY_LAST_ERROR(cartesian_spline_motion_generator_violation);
+    COPY_LAST_ERROR(joint_via_motion_generator_planning_joint_limit_violation);
+    COPY_LAST_ERROR(base_acceleration_initialization_timeout);
+    COPY_LAST_ERROR(base_acceleration_invalid_reading);
+    
+    #undef COPY_ERROR
+    #undef COPY_LAST_ERROR
     
     dst->control_command_success_rate = src.control_command_success_rate;
     dst->robot_mode = static_cast<int32_t>(src.robot_mode);

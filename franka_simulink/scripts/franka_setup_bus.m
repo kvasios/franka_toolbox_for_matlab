@@ -9,6 +9,7 @@ function franka_setup_bus()
 %   Registered bus types:
 %     Robot:
 %       - FrankaRobotStateBus: Complete robot state from libfranka (output)
+%       - FrankaErrorsBus: Error flags (nested in FrankaRobotStateBus)
 %       - FrankaModelDataBus: Computed dynamics/kinematics M, c, g, J (output)
 %       - FrankaRobotSettingsBus: Robot configuration settings (input)
 %     Gripper (Finger):
@@ -38,7 +39,7 @@ function franka_setup_bus()
 %       3. Connect trigger signals (homing, grasp, move, stop)
 %       4. Connect gripper_state output to monitor width, is_grasped, status
 %
-%   See also: franka_robot_state_bus, franka_model_data_bus, 
+%   See also: franka_robot_state_bus, franka_errors_bus, franka_model_data_bus, 
 %             franka_robot_settings_bus, franka_gripper_state_bus,
 %             franka_gripper_command_bus, Simulink.Bus
 %
@@ -55,7 +56,14 @@ function franka_setup_bus()
     assignin('base', 'FrankaRobotSettingsBus', settingsBus);
     fprintf('  FrankaRobotSettingsBus (%d elements)\n', length(settingsBus.Elements));
     
+    % Register FrankaErrorsBus (nested bus for error flags)
+    % NOTE: Must be registered BEFORE FrankaRobotStateBus since it's nested
+    errorsBus = franka_errors_bus();
+    assignin('base', 'FrankaErrorsBus', errorsBus);
+    fprintf('  FrankaErrorsBus (%d error flags)\n', length(errorsBus.Elements));
+    
     % Register FrankaRobotStateBus (Output)
+    % Contains nested FrankaErrorsBus for current_errors and last_motion_errors
     stateBus = franka_robot_state_bus();
     assignin('base', 'FrankaRobotStateBus', stateBus);
     fprintf('  FrankaRobotStateBus (%d elements)\n', length(stateBus.Elements));
