@@ -4,9 +4,12 @@ Installation
 Toolbox Add-On Installation Methods
 -----------------------------------
 
+[You can directly download and install the **latest pre-built `franka.mtlbx`** from the github release page.](https://github.com/frankarobotics/franka_toolbox_for_matlab/releases/latest) 
+that includes all the dependencies and should be able to execute out-of-the-box without additional installations.
+
 Option 1: Drag and drop the .mltbx file
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Drag and drop the ``franka-fr3.mltbx`` (or ``franka-fer.mltbx``) file into your MATLAB Command Window or
+Open your MATLAB workspace to the directory where you downloaded the ``franka.mtlbx`` file and drag and drop it into your MATLAB Command Window or
 
 Option 2: Programmatically
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -43,22 +46,20 @@ Uninstall
 
 .. _libfranka_handling_options:
 
-Switching to system-wide libfranka installation (optional)
-----------------------------------------------------------
-
-As mentioned in the :ref:`system_dependencies_precompiled_ai_companion` section, the Toolbox ships with a precompiled libfranka and all its 3d party dependencies for the Target PC.
+Custom toolbox build and handling of system-wide libfranka installation (optional)
+----------------------------------------------------------------------------------
 
 In case of any potential issues with the Toolbox prebuilt dependencies, you can always manually build and install libfranka from source for your system.
 
-In that case, please inform the Toolbox so it will opt for building against the system-wide libfranka installation by executing:
+For more details, please refer to the :ref:`custom_build` section.
+
+In case of a system-wide libfranka installation, you can set the Toolbox to build against it by executing:
 
 .. code-block:: matlab
 
     franka_libfranka_system_installation_set(true);
 
-This will trigger the Toolbox to build against the system-wide libfranka installation.
-
-For reverting back to the local installation in the scope of the Toolbox, you can execute:
+Switching back to the local libfranka installation can be achieved by executing:
 
 .. code-block:: matlab
 

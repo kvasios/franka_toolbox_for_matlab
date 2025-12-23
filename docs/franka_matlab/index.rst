@@ -17,8 +17,6 @@ The toolbox comprises two main components:
     :align: center
     :figclass: align-center
 
-    Simulink Library for rapid-prototyping of controllers for the Franka Robot.
-
 * ``Franka Library for MATLAB``, which provides the `FrankaRobot()` MATLAB class for directly interfacing the Franka Robot.
 
 .. figure:: _static/matlab_pick_and_place_with_RRT_demo.png

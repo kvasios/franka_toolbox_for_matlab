@@ -16,7 +16,6 @@ The following Mathworks products are required for the Host PC:
 
 Some of demos provided with the franka_matlab need the following toolboxes:
 
-* `Stateflow <https://www.mathworks.com/products/stateflow.html>`_ (required for the Simulink Example grasp_object.slx)
 * `Matlab Robotics Toolbox <https://www.mathworks.com/products/robotics.html>`_ (required for the MATLAB example pick_and_place_with_RRT.mlx)
 
 MATLAB Coder Support Package for NVIDIA Jetson
@@ -35,24 +34,7 @@ in order for Matlab to reference the system dynamic libraries instead of the pre
 Target PC Requirements
 ----------------------
 
-The Target PC is responsible for maintaing the real-time 1kHz control loop,
-all the same system requirements for running libfranka apply.
+The Target PC is the Real-Time Kernel Linux PC responsible for maintaing the real-time 1kHz control loop and it can either be the same as the Host PC or a different one 
+in the network like the AI Companion or NVIDIA Jetson.
 
-.. _system_dependencies_precompiled_ai_companion:
-
-Precompiled libfranka and 3d party dependencies for the Target PC
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The Franka Toolbox for MATLAB ships with a precompiled libfranka and all its 3d party dependencies for the Target PC and it should be able to execute out-of-the-box without additional installations,
-given that the Target PC is running a supported version of Ubuntu as defined below.
-
-+-------------------------+---------------------------------------------+----------------------------------------------+
-| Franka Toolbox Version  | AI Companion/Jetson Orin Platform           |  Real-Time kernel Linux Host PC as Target PC |
-+=========================+=============================================+==============================================+
-| 3.0.0                   | Ubuntu 22.04 LTS                            |  Ubuntu 22.04 LTS                            |
-+-------------------------+---------------------------------------------+----------------------------------------------+
-
-.. warning::
-
-    In case of an alternative Target PC OS version, or in case of any issue with the Toolbox prebuilt dependencies, you can always manually build and install libfranka from source for your system.
-    Check the section :ref:`libfranka handling options for Target PC<libfranka_handling_options>` for more details, after the Toolbox installation steps.
+All the same system requirements for running libfranka apply.
