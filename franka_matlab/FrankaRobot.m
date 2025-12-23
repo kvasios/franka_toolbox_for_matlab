@@ -367,22 +367,21 @@ classdef FrankaRobot < handle
             
             try
                 [varargout{1:nargout}] = cmdFunc();
+                return;
             catch ME
                 if obj.AutoReconnect && obj.isConnectionError(ME)
-                    warning('FrankaRobot:ConnectionLost', ...
-                        'Connection lost, attempting to reconnect...');
                     try
                         obj.reconnect();
                         [varargout{1:nargout}] = cmdFunc();
-                        fprintf('Reconnection successful.\n');
+                        return;
                     catch reconnectME
-                        error('FrankaRobot:ReconnectFailed', ...
-                            'Reconnection failed: %s\nOriginal error: %s', ...
-                            reconnectME.message, ME.message);
+                        throwAsCaller(MException('FrankaRobot:ReconnectFailed', ...
+                            'Reconnection failed: %s', reconnectME.message));
                     end
-                else
-                    rethrow(ME);
                 end
+                
+                % Keep errors concise (avoid deep internal stack traces).
+                throwAsCaller(MException('FrankaRobot:RemoteError', '%s', ME.message));
             end
         end
         

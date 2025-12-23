@@ -17,8 +17,7 @@ public:
         request.setIpAddress(ip);
         try {
             request.send().wait(client.getWaitScope());
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -27,8 +26,7 @@ public:
         auto request = rpcInterface.initializeGripperRequest();
         try {
             request.send().wait(client.getWaitScope());
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -37,8 +35,7 @@ public:
         auto request = rpcInterface.initializeVacuumGripperRequest();
         try {
             request.send().wait(client.getWaitScope());
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -48,8 +45,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getState();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -58,8 +54,7 @@ public:
         auto request = rpcInterface.automaticErrorRecoveryRequest();
         try {
             request.send().wait(client.getWaitScope());
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -80,8 +75,7 @@ public:
                 result.push_back(matrix);
             }
             return result;
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -97,8 +91,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getResult();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -118,8 +111,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getResult();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -129,8 +121,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getState();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -140,8 +131,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -158,8 +148,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -172,8 +161,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -183,8 +171,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -227,8 +214,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -251,8 +237,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -262,8 +247,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getState();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -277,8 +261,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -290,8 +273,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -301,8 +283,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -318,8 +299,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -334,8 +314,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -352,8 +331,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -369,8 +347,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -385,8 +362,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -397,8 +373,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getSuccess();
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
@@ -409,8 +384,7 @@ public:
         try {
             auto response = request.send().wait(client.getWaitScope());
             return {response.getTimestamp(), response.getPort()};
-        } catch (const kj::Exception& e) {
-            std::cerr << "Franka Robot Error: " << e.getDescription().cStr() << std::endl;
+        } catch (const kj::Exception&) {
             throw;
         }
     }
