@@ -389,7 +389,7 @@ classdef FrankaRobot < handle
         function isConnErr = isConnectionError(obj, ME)
             % Check if an exception indicates a connection/communication error
             connErrorPatterns = {'connection', 'timeout', 'network', ...
-                'communication', 'rpc', 'disconnected', 'socket'};
+                'communication', 'rpc', 'disconnected', 'socket', 'interrupted'};
             msgLower = lower(ME.message);
             isConnErr = false;
             for i = 1:numel(connErrorPatterns)

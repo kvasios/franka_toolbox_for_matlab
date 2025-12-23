@@ -110,8 +110,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         // Call the method
         try {
             franka_robot_instance->automaticErrorRecovery();
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(e.getDescription().cStr());
         } catch (...) {
-            
+            mexErrMsgTxt("Failed to perform automatic error recovery");
         }
         return;
     }
