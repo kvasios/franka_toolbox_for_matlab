@@ -37,4 +37,4 @@ Target PC Requirements
 The Target PC is the Real-Time Kernel Linux PC responsible for maintaing the real-time 1kHz control loop and it can either be the same as the Host PC or a different one 
 in the network like the AI Companion or NVIDIA Jetson.
 
-All the same system requirements for running libfranka apply.
+All the same system requirements for FCI and libfranka apply for the Target PC.
