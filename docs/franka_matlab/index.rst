@@ -13,11 +13,11 @@ The toolbox comprises two main components:
 
 * ``Franka Library for Simulink``, a set of Simulink blocks for interfacing the Franka Robot.
 
-.. figure:: _static/robot_control_simulink_block.png
+.. figure:: _static/motion_with_control_simulink_sample_pic.png
     :align: center
     :figclass: align-center
 
-    The main Robot Control Simulink Block.
+    Typical workflow overview with the Franka Library for Simulink.
 
 * ``Franka Library for MATLAB``, which provides the `FrankaRobot()` MATLAB class for a high-level interface to the Franka Robot.
 
