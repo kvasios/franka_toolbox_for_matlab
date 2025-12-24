@@ -421,8 +421,54 @@ void FrankaGripperContext::initialize(const std::string& robot_ip)
     instance_ = FrankaGripperManager::getOrCreate(robot_ip);
 }
 
+void FrankaGripperContext::initializeAsync(const std::string& robot_ip)
+{
+    // Already connected?
+    if (instance_) {
+        return;
+    }
+    
+    // Already connecting?
+    if (connection_in_progress_.load()) {
+        // Check if it's the same IP
+        if (FrankaGripperManager::sanitizeIP(robot_ip) == 
+            FrankaGripperManager::sanitizeIP(pending_robot_ip_)) {
+            return;  // Same connection already in progress
+        }
+        return;  // Different IP requested while connecting - wait
+    }
+    
+    // Store the IP and mark as connecting
+    pending_robot_ip_ = robot_ip;
+    connection_in_progress_.store(true);
+    
+    // Join any previous connection thread
+    if (connection_thread_.joinable()) {
+        connection_thread_.join();
+    }
+    
+    // Spawn connection thread
+    connection_thread_ = std::thread([this, ip = robot_ip]() {
+        try {
+            FrankaGripperInstance* inst = FrankaGripperManager::getOrCreate(ip);
+            instance_ = inst;
+            std::cout << "FrankaGripperContext: Async connection to " << ip << " succeeded" << std::endl;
+        } catch (const franka::Exception& e) {
+            std::cerr << "FrankaGripperContext: Async connection failed: " << e.what() << std::endl;
+        }
+        connection_in_progress_.store(false);
+    });
+}
+
 void FrankaGripperContext::shutdown()
 {
+    // Wait for any pending async connection
+    if (connection_thread_.joinable()) {
+        connection_thread_.join();
+    }
+    connection_in_progress_.store(false);
+    pending_robot_ip_.clear();
+    
     // Context doesn't own the instance, so just clear the pointer
     instance_ = nullptr;
 }

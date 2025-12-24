@@ -235,8 +235,26 @@ public:
     // Lifecycle
     // ========================================================================
     
+    /**
+     * @brief Initialize by connecting to vacuum gripper at IP (blocking)
+     */
     void initialize(const std::string& robot_ip);
+    
+    /**
+     * @brief Initialize by connecting to vacuum gripper at IP (non-blocking)
+     * 
+     * Spawns a background thread to perform the connection.
+     * Check isConnecting() and isInitialized() to track progress.
+     */
+    void initializeAsync(const std::string& robot_ip);
+    
     bool isInitialized() const { return instance_ != nullptr; }
+    
+    /**
+     * @brief Check if async connection is in progress
+     */
+    bool isConnecting() const { return connection_in_progress_.load(); }
+    
     void shutdown();
     
     // ========================================================================
@@ -267,6 +285,11 @@ public:
 
 private:
     FrankaVacuumGripperInstance* instance_{nullptr};
+    
+    // Async connection state
+    std::thread connection_thread_;
+    std::atomic<bool> connection_in_progress_{false};
+    std::string pending_robot_ip_;
     
     FrankaVacuumGripperStateBus* state_out_{nullptr};
     const FrankaVacuumGripperCommandBus* command_in_{nullptr};

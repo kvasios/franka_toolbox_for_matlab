@@ -149,23 +149,23 @@
         return std::string(robot_ip_buf);
     };
     
-    /* Ensure context is initialized (lazy connect on first step) */
-    if (!%<ctxName>.isInitialized()) {
-        try {
-            std::string ip = extractRobotIP();
-            if (!ip.empty()) {
-                %<ctxName>.initialize(ip);
-                
-                /* Do an initial state read to populate output */
-                %<ctxName>.readStateOnce();
-            }
-        } catch (const franka::Exception& e) {
-            std::cerr << "FrankaGripperContext: failed to connect: " << e.what() << std::endl;
+    /* Ensure context is initialized (async connection - non-blocking).
+     * 
+     * Connection happens in a background thread to avoid blocking
+     * the Simulink scheduler if the gripper is unreachable.
+     */
+    if (!%<ctxName>.isInitialized() && !%<ctxName>.isConnecting()) {
+        std::string ip = extractRobotIP();
+        if (!ip.empty()) {
+            %<ctxName>.initializeAsync(ip);
         }
     }
     
     /* Process triggers and update state output.
      * Edge detection was done above using DWork for persistence.
+     * 
+     * Only process if connected. If still connecting, we skip this step
+     * and retry on the next cycle.
      */
     if (%<ctxName>.isInitialized()) {
         /* Pass rising edge signals to context */

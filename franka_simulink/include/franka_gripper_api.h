@@ -305,15 +305,29 @@ public:
     // ========================================================================
     
     /**
-     * @brief Initialize by connecting to gripper at IP
+     * @brief Initialize by connecting to gripper at IP (blocking)
      * @param robot_ip IP address of the Franka robot
      */
     void initialize(const std::string& robot_ip);
     
     /**
-     * @brief Check if initialized
+     * @brief Initialize by connecting to gripper at IP (non-blocking)
+     * @param robot_ip IP address of the Franka robot
+     * 
+     * Spawns a background thread to perform the connection.
+     * Check isConnecting() and isInitialized() to track progress.
+     */
+    void initializeAsync(const std::string& robot_ip);
+    
+    /**
+     * @brief Check if initialized (connected)
      */
     bool isInitialized() const { return instance_ != nullptr; }
+    
+    /**
+     * @brief Check if async connection is in progress
+     */
+    bool isConnecting() const { return connection_in_progress_.load(); }
     
     /**
      * @brief Shutdown and cleanup
@@ -353,6 +367,11 @@ public:
 private:
     // Shared gripper instance (borrowed from manager, not owned)
     FrankaGripperInstance* instance_{nullptr};
+    
+    // Async connection state
+    std::thread connection_thread_;
+    std::atomic<bool> connection_in_progress_{false};
+    std::string pending_robot_ip_;
     
     // Pointers to Simulink signals
     FrankaGripperStateBus* state_out_{nullptr};
