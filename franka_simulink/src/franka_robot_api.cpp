@@ -584,17 +584,34 @@ FrankaRobotInstance* FrankaRobotManager::getOrCreate(const std::string& ip) {
         throw std::invalid_argument("FrankaRobotManager: robot_ip is empty");
     }
     
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    auto it = instances_.find(sanitized);
-    if (it != instances_.end()) {
-        return it->second.get();
+    // Fast path: Check if instance already exists (read-only, short lock)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = instances_.find(sanitized);
+        if (it != instances_.end()) {
+            return it->second.get();
+        }
     }
     
-    // Create new instance (may throw)
+    // Create new instance OUTSIDE the lock (may take several seconds if IP is unreachable)
+    // This allows other robots to connect concurrently without blocking each other.
     auto instance = std::make_unique<FrankaRobotInstance>(sanitized);
     FrankaRobotInstance* ptr = instance.get();
-    instances_[sanitized] = std::move(instance);
+    
+    // Insert into map (short lock)
+    // Double-check: Another thread might have created the same instance while we were connecting
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = instances_.find(sanitized);
+        if (it != instances_.end()) {
+            // Race condition: Another thread beat us to it
+            // Discard our instance and return the existing one
+            std::cout << "FrankaRobotManager: Race detected for " << sanitized 
+                      << ", using existing instance" << std::endl;
+            return it->second.get();
+        }
+        instances_[sanitized] = std::move(instance);
+    }
     
     return ptr;
 }
