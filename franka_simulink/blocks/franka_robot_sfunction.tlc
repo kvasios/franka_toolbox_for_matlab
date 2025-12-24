@@ -128,9 +128,15 @@
                  * Create a dedicated controller model object that is ONLY touched by
                  * the libfranka 1kHz control thread. This avoids races with the main
                  * scheduler running the top-level model (enable/disable, logging, etc.).
+                 *
+                 * CRITICAL: Each block instance MUST have its own controller model to
+                 * support multiple robots (different IPs) running simultaneously.
+                 * We use a unique name per block instance (not static!) to ensure
+                 * separate memory for each robot's control thread.
                  */
                 using FrankaControllerModelT = std::remove_reference<decltype(*this)>::type;
-                static FrankaControllerModelT franka_controller_model;
+                %assign ctrlModelName = "franka_controller_model_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
+                static FrankaControllerModelT %<ctrlModelName>;
 
                 /* Initialize controller-model timing/state. The dedicated controller
                  * instance is NOT run by the Simulink scheduler, so we explicitly
@@ -144,7 +150,7 @@
                  * target AND code interface settings, so we don't touch them.
                  */
                 {
-                    auto* rtm = franka_controller_model.getRTM();
+                    auto* rtm = %<ctrlModelName>.getRTM();
                     rtm->Timing.clockTick0 = 0U;
                     %if !SLibIsERTTarget()
                     rtm->Timing.clockTickH0 = 0U;
@@ -171,7 +177,7 @@
                         /* Run the controller */
                         ctrl->%<ctrlFcnName>();
                     },
-                    &franka_controller_model
+                    &%<ctrlModelName>
                 );
             %else
                 /* Nonreusable function packaging (External Mode friendly):
@@ -254,8 +260,9 @@
 
         %if GenerateClassInterface
             /* In class interface packaging, redirect I/O to the dedicated controller object. */
+            %assign ctrlModelName = "franka_controller_model_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
             %assign fromPrefix = "&%<bsMember>."
-            %assign toPrefix = "&franka_controller_model.%<bsMember>."
+            %assign toPrefix = "&%<ctrlModelName>.%<bsMember>."
             %assign stateExprCtrl = FEVAL("strrep", stateExpr, fromPrefix, toPrefix)
             %assign modelExprCtrl = FEVAL("strrep", modelExpr, fromPrefix, toPrefix)
             %assign dtExprCtrl = FEVAL("strrep", dtExpr, fromPrefix, toPrefix)
@@ -280,6 +287,7 @@
              * length limits cause additional truncation beyond what's stored in
              * InitializeFcn/EnableFcn fields.
              */
+            %assign ctrlModelName = "franka_controller_model_" + FEVAL("num2str", block.BlockIdx[0]) + "_" + FEVAL("num2str", block.BlockIdx[2])
             %assign ctrlSys = ::CompiledModel.System[ctrlSysIdx]
             
             %% Try Initialize first, fall back to SystemInitialize
@@ -288,13 +296,13 @@
                 %assign initFcnInfo = LibGetSystemField(ctrlSys, "InitializeFcnInfo")
                 %if !LibIsEqual(initFcnInfo, "")
                     %assign hasInitialize = TLC_TRUE
-                    franka_controller_model.%<initFcnInfo.Name>();
+                    %<ctrlModelName>.%<initFcnInfo.Name>();
                 %endif
             %endif
             %if !hasInitialize && LibIsSystemField(ctrlSys, "SystemInitializeFcnInfo")
                 %assign sysInitFcnInfo = LibGetSystemField(ctrlSys, "SystemInitializeFcnInfo")
                 %if !LibIsEqual(sysInitFcnInfo, "")
-                    franka_controller_model.%<sysInitFcnInfo.Name>();
+                    %<ctrlModelName>.%<sysInitFcnInfo.Name>();
                 %endif
             %endif
             
@@ -302,7 +310,7 @@
             %if LibIsSystemField(ctrlSys, "EnableFcnInfo")
                 %assign enableFcnInfo = LibGetSystemField(ctrlSys, "EnableFcnInfo")
                 %if !LibIsEqual(enableFcnInfo, "")
-                    franka_controller_model.%<enableFcnInfo.Name>();
+                    %<ctrlModelName>.%<enableFcnInfo.Name>();
                 %endif
             %endif
 
