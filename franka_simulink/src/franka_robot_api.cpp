@@ -942,6 +942,76 @@ void FrankaRobotContext::initialize(const std::string& robot_ip) {
     }
 }
 
+void FrankaRobotContext::initializeAsync(const std::string& robot_ip) {
+    // Already connected to the same robot?
+    if (instance_) {
+        if (instance_->ip() == FrankaRobotManager::sanitizeIP(robot_ip)) {
+            return;  // Already connected to this robot
+        }
+        // Different robot requested - shutdown old connection first
+        shutdown();
+    }
+    
+    // Already connecting?
+    if (connection_in_progress_.load()) {
+        // Check if it's the same IP we're already connecting to
+        if (FrankaRobotManager::sanitizeIP(robot_ip) == 
+            FrankaRobotManager::sanitizeIP(pending_robot_ip_)) {
+            return;  // Same connection already in progress
+        }
+        // Different IP requested while connecting - wait for current attempt to finish
+        // (User will see CONNECTING status; next call will handle the new IP)
+        return;
+    }
+    
+    // Store the IP we're connecting to
+    pending_robot_ip_ = robot_ip;
+    connection_status_.store(FRANKA_CONNECTION_CONNECTING);
+    connection_in_progress_.store(true);
+    
+    // Join any previous connection thread before starting a new one
+    if (connection_thread_.joinable()) {
+        connection_thread_.join();
+    }
+    
+    // Spawn connection thread (captures ip by value)
+    connection_thread_ = std::thread([this, ip = robot_ip]() {
+        try {
+            FrankaRobotInstance* inst = FrankaRobotManager::getOrCreate(ip);
+            
+            // Success - store instance and update status
+            instance_ = inst;
+            connection_status_.store(FRANKA_CONNECTION_CONNECTED);
+            last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_NONE);
+            std::cout << "FrankaRobotContext: Async connection to " << ip << " succeeded" << std::endl;
+            
+        } catch (const franka::NetworkException& e) {
+            connection_status_.store(FRANKA_CONNECTION_ERROR);
+            last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_NETWORK);
+            std::cerr << "FrankaRobotContext: Async connection failed (network): " << e.what() << std::endl;
+        } catch (const franka::ProtocolException& e) {
+            connection_status_.store(FRANKA_CONNECTION_ERROR);
+            last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_PROTOCOL);
+            std::cerr << "FrankaRobotContext: Async connection failed (protocol): " << e.what() << std::endl;
+        } catch (const franka::IncompatibleVersionException& e) {
+            connection_status_.store(FRANKA_CONNECTION_ERROR);
+            last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_INCOMPATIBLE_VERSION);
+            std::cerr << "FrankaRobotContext: Async connection failed (version): " << e.what() << std::endl;
+        } catch (const franka::ModelException& e) {
+            connection_status_.store(FRANKA_CONNECTION_ERROR);
+            last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_MODEL);
+            std::cerr << "FrankaRobotContext: Async connection failed (model): " << e.what() << std::endl;
+        } catch (const franka::Exception& e) {
+            connection_status_.store(FRANKA_CONNECTION_ERROR);
+            last_connection_error_code_.store(FRANKA_CONNECTION_ERROR_UNKNOWN);
+            std::cerr << "FrankaRobotContext: Async connection failed: " << e.what() << std::endl;
+        }
+        
+        // Mark connection attempt as complete (success or failure)
+        connection_in_progress_.store(false);
+    });
+}
+
 void FrankaRobotContext::setControllerCallback(ControllerCallback callback, void* user_data) {
     controller_callback_ = callback;
     controller_user_data_ = user_data;
@@ -965,6 +1035,14 @@ void FrankaRobotContext::shutdown() {
     if (control_thread_.joinable()) {
         control_thread_.join();
     }
+    
+    // Wait for any pending async connection to complete
+    // (We can't cancel it, but we can wait for it to finish)
+    if (connection_thread_.joinable()) {
+        connection_thread_.join();
+    }
+    connection_in_progress_.store(false);
+    pending_robot_ip_.clear();
     
     // Don't release instance_ here - the manager owns it
     // Other blocks may still be using it

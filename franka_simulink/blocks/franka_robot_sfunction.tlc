@@ -463,25 +463,31 @@
         return std::string(robot_ip_buf);
     };
     
-    /* Helper: Ensure context is initialized */
-    auto ensureInitialized = [&]() -> bool {
+    /* Helper: Start async connection if not already connected/connecting.
+     * 
+     * This is NON-BLOCKING. The connection happens in a background thread.
+     * Returns immediately; caller should check isInitialized() for completion.
+     */
+    auto ensureInitializedAsync = [&]() {
         if (%<ctxName>.isInitialized()) {
-            return true;
+            return;  /* Already connected */
         }
-        try {
-            %<ctxName>.initialize(extractRobotIP());
-            return true;
-        } catch (const franka::Exception& e) {
-            std::cerr << "FrankaRobotContext: failed to connect: " << e.what() << std::endl;
-            return false;
+        if (%<ctxName>.isConnecting()) {
+            return;  /* Connection in progress */
         }
+        /* Start async connection (non-blocking) */
+        %<ctxName>.initializeAsync(extractRobotIP());
     };
     
     /* ====================================================================
      * Handle error_recovery trigger (only when NOT in control)
+     * 
+     * NOTE: error_recovery and read_once require a connected robot.
+     * If not yet connected, we start async connection; the trigger
+     * will be re-detected on subsequent steps once connected.
      * ==================================================================== */
     if (error_recovery_rising && !%<ctxName>.isControlRunning()) {
-        if (ensureInitialized()) {
+        if (%<ctxName>.isInitialized()) {
             /* Use the manager API for error recovery (operates on shared instance) */
             std::string ip = extractRobotIP();
             FrankaRobotManager::automaticErrorRecovery(ip);
@@ -490,6 +496,9 @@
             FrankaRobotManager::readOnce(ip,
                 reinterpret_cast<FrankaRobotStateBus*>(%<LibBlockOutputSignalAddr(1, "", "", 0)>),
                 reinterpret_cast<FrankaModelDataBus*>(%<LibBlockOutputSignalAddr(2, "", "", 0)>));
+        } else {
+            /* Not connected yet - start async connection */
+            ensureInitializedAsync();
         }
     }
     
@@ -497,12 +506,15 @@
      * Handle read_once trigger (only when NOT in control)
      * ==================================================================== */
     if (read_once_rising && !%<ctxName>.isControlRunning()) {
-        if (ensureInitialized()) {
+        if (%<ctxName>.isInitialized()) {
             /* Use the manager API for readOnce (operates on shared instance) */
             std::string ip = extractRobotIP();
             FrankaRobotManager::readOnce(ip,
                 reinterpret_cast<FrankaRobotStateBus*>(%<LibBlockOutputSignalAddr(1, "", "", 0)>),
                 reinterpret_cast<FrankaModelDataBus*>(%<LibBlockOutputSignalAddr(2, "", "", 0)>));
+        } else {
+            /* Not connected yet - start async connection */
+            ensureInitializedAsync();
         }
     }
     
@@ -517,14 +529,24 @@
      *   4. Block A finishes
      *   5. Block B should now start
      * 
+     * With ASYNC CONNECTION:
+     *   - Connection happens in background thread (non-blocking)
+     *   - We keep retrying while enable is high and not yet connected
+     *   - Once connected AND robot is free, we start control
+     * 
      * To support this, we:
      *   - Check if enable is high AND this context is not running
-     *   - Check if the shared robot instance is available via manager
+     *   - Start async connection if not connected/connecting
+     *   - Only start control once connected AND robot is free
      *   - Only consume the rising edge (update prev_enable) when we
      *     successfully start OR when control is already running
      * ==================================================================== */
     if ((enable > 0.5) && !%<ctxName>.isControlRunning()) {
-        if (ensureInitialized()) {
+        /* Start async connection if not yet connected/connecting */
+        ensureInitializedAsync();
+        
+        /* Only proceed to start control if fully connected */
+        if (%<ctxName>.isInitialized()) {
             /* Check if the shared robot instance is available (not controlled by another context) */
             std::string ip = extractRobotIP();
             if (!FrankaRobotManager::isControlRunning(ip)) {
@@ -535,10 +557,10 @@
             }
             /* else: Robot is busy (another context has control).
              * Do NOT update prev_enable so we retry on next step. */
-        } else {
-            /* Failed to initialize - update prev_enable to avoid spamming connection attempts */
-            %<LibBlockDWork(PrevEnable, "", "", 0)> = enable;
         }
+        /* else: Still connecting or connection failed.
+         * Do NOT update prev_enable so we retry on next step.
+         * User can see connection_status in FrankaRobotStateBus. */
     }
     else if (enable_falling && %<ctxName>.isControlRunning()) {
         /* Request stop on falling edge (graceful) */

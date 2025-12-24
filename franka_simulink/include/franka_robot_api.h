@@ -532,6 +532,21 @@ public:
      */
     bool isControlRunning() const { return running_.load(); }
     
+    /**
+     * @brief Check if async connection is in progress
+     */
+    bool isConnecting() const { return connection_in_progress_.load(); }
+    
+    /**
+     * @brief Start asynchronous connection to robot
+     * @param robot_ip IP address of the Franka robot
+     * 
+     * Non-blocking. Spawns a thread to perform the connection.
+     * Check isConnecting() and isInitialized() to track progress.
+     * Connection status is published to FrankaRobotStateBus for visibility.
+     */
+    void initializeAsync(const std::string& robot_ip);
+    
 private:
     void controlThreadFunc();
     void publishStateOnce(double dt_sec_override);
@@ -571,6 +586,11 @@ private:
     // Control state
     std::atomic<bool> running_{false};
     std::thread control_thread_;
+    
+    // Async connection state
+    std::thread connection_thread_;
+    std::atomic<bool> connection_in_progress_{false};
+    std::string pending_robot_ip_;  // IP for async connection in progress
     
     // Controller callback (points to Simulink-generated function)
     ControllerCallback controller_callback_{nullptr};
