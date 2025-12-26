@@ -96,6 +96,17 @@ public:
     void queueCommand(const VacuumGripperCommandRequest& request);
     
     /**
+     * @brief Stop immediately - interrupts any running command
+     * @return true if stop succeeded
+     * 
+     * This calls gripper_->stop() directly (NOT through the queue) to
+     * interrupt any currently running vacuum/dropOff command.
+     * 
+     * Thread-safe: franka::VacuumGripper members are threadsafe per libfranka docs.
+     */
+    bool stopImmediate();
+    
+    /**
      * @brief Check if a command is currently executing
      */
     bool isCommandInProgress() const { return command_in_progress_.load(); }

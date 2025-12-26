@@ -111,6 +111,18 @@ public:
     void queueCommand(const GripperCommandRequest& request);
     
     /**
+     * @brief Stop immediately - interrupts any running command
+     * @return true if stop succeeded
+     * 
+     * This calls gripper_->stop() directly (NOT through the queue) to
+     * interrupt any currently running move/grasp/homing command.
+     * 
+     * Thread-safe: franka::Gripper members are threadsafe per libfranka docs.
+     * See: https://frankarobotics.github.io/libfranka/0.19.0/classfranka_1_1Gripper.html
+     */
+    bool stopImmediate();
+    
+    /**
      * @brief Check if a command is currently executing
      */
     bool isCommandInProgress() const { return command_in_progress_.load(); }

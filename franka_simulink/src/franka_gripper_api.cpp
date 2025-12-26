@@ -66,6 +66,55 @@ void FrankaGripperInstance::queueCommand(const GripperCommandRequest& request)
     command_cv_.notify_one();
 }
 
+bool FrankaGripperInstance::stopImmediate()
+{
+    // Call stop() directly - this is threadsafe per libfranka docs and will
+    // interrupt any currently running move/grasp/homing command.
+    // The blocked command in the worker thread will return false or throw.
+    try {
+        std::cout << "FrankaGripper: Executing IMMEDIATE stop (interrupting current command)..." << std::endl;
+        bool result = gripper_->stop();
+        
+        // Update status atomically
+        last_command_.store(static_cast<int>(FRANKA_GRIPPER_CMD_STOP));
+        last_command_success_.store(result);
+        
+        if (result) {
+            status_.store(FRANKA_GRIPPER_STATUS_SUCCESS);
+            error_code_.store(0);
+            std::cout << "FrankaGripper: Immediate stop succeeded" << std::endl;
+        } else {
+            status_.store(FRANKA_GRIPPER_STATUS_FAILED);
+            error_code_.store(1);
+            std::cout << "FrankaGripper: Immediate stop returned false" << std::endl;
+        }
+        
+        return result;
+        
+    } catch (const franka::CommandException& e) {
+        std::cerr << "FrankaGripper: stopImmediate CommandException: " << e.what() << std::endl;
+        last_command_.store(static_cast<int>(FRANKA_GRIPPER_CMD_STOP));
+        last_command_success_.store(false);
+        status_.store(FRANKA_GRIPPER_STATUS_ERROR);
+        error_code_.store(2);
+        return false;
+    } catch (const franka::NetworkException& e) {
+        std::cerr << "FrankaGripper: stopImmediate NetworkException: " << e.what() << std::endl;
+        last_command_.store(static_cast<int>(FRANKA_GRIPPER_CMD_STOP));
+        last_command_success_.store(false);
+        status_.store(FRANKA_GRIPPER_STATUS_ERROR);
+        error_code_.store(3);
+        return false;
+    } catch (const franka::Exception& e) {
+        std::cerr << "FrankaGripper: stopImmediate Exception: " << e.what() << std::endl;
+        last_command_.store(static_cast<int>(FRANKA_GRIPPER_CMD_STOP));
+        last_command_success_.store(false);
+        status_.store(FRANKA_GRIPPER_STATUS_ERROR);
+        error_code_.store(4);
+        return false;
+    }
+}
+
 bool FrankaGripperInstance::readState(FrankaGripperStateBus* state_out)
 {
     try {
@@ -384,9 +433,9 @@ void FrankaGripperManager::stop(const std::string& ip)
 {
     auto* instance = get(ip);
     if (instance) {
-        GripperCommandRequest request{};
-        request.command = FRANKA_GRIPPER_CMD_STOP;
-        instance->queueCommand(request);
+        // Use immediate stop to interrupt any running command
+        // This is threadsafe per libfranka docs
+        instance->stopImmediate();
     }
 }
 
@@ -498,11 +547,14 @@ void FrankaGripperContext::step(double homing_rising, double grasp_rising, doubl
     bool do_move = move_rising > 0.5;
     bool do_read_state = read_state_rising > 0.5;
     
-    // Queue commands on rising edges (priority: stop > homing > grasp > move)
+    // Process commands on rising edges
+    // STOP is special: it calls stopImmediate() directly to interrupt running commands
+    // Other commands are queued for the worker thread
     if (do_stop) {
-        GripperCommandRequest request{};
-        request.command = FRANKA_GRIPPER_CMD_STOP;
-        instance_->queueCommand(request);
+        // IMMEDIATE STOP - interrupts any running command!
+        // This is the key fix: stop() is called directly (not queued) because
+        // franka::Gripper is threadsafe. This allows stopping a move/grasp in progress.
+        instance_->stopImmediate();
     } else if (do_homing) {
         GripperCommandRequest request{};
         request.command = FRANKA_GRIPPER_CMD_HOMING;

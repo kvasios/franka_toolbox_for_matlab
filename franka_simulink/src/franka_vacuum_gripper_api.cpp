@@ -65,6 +65,55 @@ void FrankaVacuumGripperInstance::queueCommand(const VacuumGripperCommandRequest
     command_cv_.notify_one();
 }
 
+bool FrankaVacuumGripperInstance::stopImmediate()
+{
+    // Call stop() directly - this is threadsafe per libfranka docs and will
+    // interrupt any currently running vacuum/dropOff command.
+    // The blocked command in the worker thread will return false or throw.
+    try {
+        std::cout << "FrankaVacuumGripper: Executing IMMEDIATE stop (interrupting current command)..." << std::endl;
+        bool result = gripper_->stop();
+        
+        // Update status atomically
+        last_command_.store(static_cast<int>(FRANKA_VACUUM_CMD_STOP));
+        last_command_success_.store(result);
+        
+        if (result) {
+            status_.store(FRANKA_VACUUM_STATUS_SUCCESS);
+            error_code_.store(0);
+            std::cout << "FrankaVacuumGripper: Immediate stop succeeded" << std::endl;
+        } else {
+            status_.store(FRANKA_VACUUM_STATUS_FAILED);
+            error_code_.store(1);
+            std::cout << "FrankaVacuumGripper: Immediate stop returned false" << std::endl;
+        }
+        
+        return result;
+        
+    } catch (const franka::CommandException& e) {
+        std::cerr << "FrankaVacuumGripper: stopImmediate CommandException: " << e.what() << std::endl;
+        last_command_.store(static_cast<int>(FRANKA_VACUUM_CMD_STOP));
+        last_command_success_.store(false);
+        status_.store(FRANKA_VACUUM_STATUS_ERROR);
+        error_code_.store(2);
+        return false;
+    } catch (const franka::NetworkException& e) {
+        std::cerr << "FrankaVacuumGripper: stopImmediate NetworkException: " << e.what() << std::endl;
+        last_command_.store(static_cast<int>(FRANKA_VACUUM_CMD_STOP));
+        last_command_success_.store(false);
+        status_.store(FRANKA_VACUUM_STATUS_ERROR);
+        error_code_.store(3);
+        return false;
+    } catch (const franka::Exception& e) {
+        std::cerr << "FrankaVacuumGripper: stopImmediate Exception: " << e.what() << std::endl;
+        last_command_.store(static_cast<int>(FRANKA_VACUUM_CMD_STOP));
+        last_command_success_.store(false);
+        status_.store(FRANKA_VACUUM_STATUS_ERROR);
+        error_code_.store(4);
+        return false;
+    }
+}
+
 bool FrankaVacuumGripperInstance::readState(FrankaVacuumGripperStateBus* state_out)
 {
     try {
@@ -386,9 +435,9 @@ void FrankaVacuumGripperManager::stop(const std::string& ip)
 {
     auto* instance = get(ip);
     if (instance) {
-        VacuumGripperCommandRequest request{};
-        request.command = FRANKA_VACUUM_CMD_STOP;
-        instance->queueCommand(request);
+        // Use immediate stop to interrupt any running command
+        // This is threadsafe per libfranka docs
+        instance->stopImmediate();
     }
 }
 
@@ -498,11 +547,14 @@ void FrankaVacuumGripperContext::step(double vacuum_rising, double dropoff_risin
     bool do_stop = stop_rising > 0.5;
     bool do_read_state = read_state_rising > 0.5;
     
-    // Queue commands on rising edges (priority: stop > vacuum > dropoff)
+    // Process commands on rising edges
+    // STOP is special: it calls stopImmediate() directly to interrupt running commands
+    // Other commands are queued for the worker thread
     if (do_stop) {
-        VacuumGripperCommandRequest request{};
-        request.command = FRANKA_VACUUM_CMD_STOP;
-        instance_->queueCommand(request);
+        // IMMEDIATE STOP - interrupts any running command!
+        // This is the key fix: stop() is called directly (not queued) because
+        // franka::VacuumGripper is threadsafe. This allows stopping vacuum/dropOff in progress.
+        instance_->stopImmediate();
     } else if (do_vacuum && command_in_) {
         VacuumGripperCommandRequest request{};
         request.command = FRANKA_VACUUM_CMD_VACUUM;
