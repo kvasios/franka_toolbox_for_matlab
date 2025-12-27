@@ -422,6 +422,160 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         return;
     }
 
+    // Gripper Move Async
+    if (!strcmp("gripper_move_async", cmd)) {
+        if (nlhs != 1 || nrhs < 4 || nrhs > 5)
+            mexErrMsgTxt("Gripper Move Async: One output and 3-4 inputs (handle, width, speed, [timeout]) expected.");
+        try {
+            double width = mxGetScalar(prhs[2]);
+            double speed = mxGetScalar(prhs[3]);
+            double timeout = (nrhs >= 5) ? mxGetScalar(prhs[4]) : 15.0;
+            
+            bool started = franka_robot_instance->gripperMoveAsync(width, speed, timeout);
+            plhs[0] = mxCreateLogicalScalar(started);
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Gripper move async failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Gripper move async failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to start async gripper move (unknown error)");
+        }
+        return;
+    }
+
+    // Gripper Grasp Async
+    if (!strcmp("gripper_grasp_async", cmd)) {
+        if (nlhs != 1 || nrhs < 7 || nrhs > 8)
+            mexErrMsgTxt("Gripper Grasp Async: One output and 6-7 inputs (handle, width, speed, force, epsilon_inner, epsilon_outer, [timeout]) expected.");
+        try {
+            double width = mxGetScalar(prhs[2]);
+            double speed = mxGetScalar(prhs[3]);
+            double force = mxGetScalar(prhs[4]);
+            double epsilon_inner = mxGetScalar(prhs[5]);
+            double epsilon_outer = mxGetScalar(prhs[6]);
+            double timeout = (nrhs >= 8) ? mxGetScalar(prhs[7]) : 15.0;
+            
+            bool started = franka_robot_instance->gripperGraspAsync(
+                width, speed, force, epsilon_inner, epsilon_outer, timeout);
+            plhs[0] = mxCreateLogicalScalar(started);
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Gripper grasp async failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Gripper grasp async failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to start async gripper grasp (unknown error)");
+        }
+        return;
+    }
+
+    // Gripper Async Status
+    if (!strcmp("gripper_async_status", cmd)) {
+        if (nlhs != 1 || nrhs != 2)
+            mexErrMsgTxt("Gripper Async Status: One output and one input (handle) expected.");
+        try {
+            auto status = franka_robot_instance->getGripperAsyncStatus();
+            plhs[0] = mxCreateStructMatrix(1, 1, 0, nullptr);
+            
+            // State fields
+            mxAddField(plhs[0], "width");
+            mxSetField(plhs[0], 0, "width", mxCreateDoubleScalar(status.getState().getWidth()));
+            
+            mxAddField(plhs[0], "max_width");
+            mxSetField(plhs[0], 0, "max_width", mxCreateDoubleScalar(status.getState().getMaxWidth()));
+            
+            mxAddField(plhs[0], "is_grasped");
+            mxSetField(plhs[0], 0, "is_grasped", mxCreateLogicalScalar(status.getState().getIsGrasped()));
+            
+            mxAddField(plhs[0], "temperature");
+            mxSetField(plhs[0], 0, "temperature", mxCreateDoubleScalar(status.getState().getTemperature()));
+            
+            mxAddField(plhs[0], "time_stamp");
+            mxSetField(plhs[0], 0, "time_stamp", mxCreateDoubleScalar(status.getState().getTimeStamp()));
+            
+            // Command status as string
+            mxAddField(plhs[0], "command_status");
+            const char* status_str = "unknown";
+            switch (status.getCommandStatus()) {
+                case GripperCommandStatus::IDLE: status_str = "idle"; break;
+                case GripperCommandStatus::BUSY: status_str = "busy"; break;
+                case GripperCommandStatus::SUCCESS: status_str = "success"; break;
+                case GripperCommandStatus::FAILED: status_str = "failed"; break;
+                case GripperCommandStatus::TIMEOUT: status_str = "timeout"; break;
+                case GripperCommandStatus::STOPPED: status_str = "stopped"; break;
+            }
+            mxSetField(plhs[0], 0, "command_status", mxCreateString(status_str));
+            
+            mxAddField(plhs[0], "last_command");
+            mxSetField(plhs[0], 0, "last_command", mxCreateString(status.getLastCommand().cStr()));
+            
+            mxAddField(plhs[0], "error_message");
+            mxSetField(plhs[0], 0, "error_message", mxCreateString(status.getErrorMessage().cStr()));
+            
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Gripper async status failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Gripper async status failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to get gripper async status (unknown error)");
+        }
+        return;
+    }
+
+    // Gripper Wait For Command
+    if (!strcmp("gripper_wait", cmd)) {
+        if (nlhs != 1 || nrhs < 2 || nrhs > 3)
+            mexErrMsgTxt("Gripper Wait: One output and 1-2 inputs (handle, [timeout]) expected.");
+        try {
+            double timeout = (nrhs >= 3) ? mxGetScalar(prhs[2]) : 30.0;
+            
+            auto status = franka_robot_instance->gripperWaitForCommand(timeout);
+            plhs[0] = mxCreateStructMatrix(1, 1, 0, nullptr);
+            
+            // State fields
+            mxAddField(plhs[0], "width");
+            mxSetField(plhs[0], 0, "width", mxCreateDoubleScalar(status.getState().getWidth()));
+            
+            mxAddField(plhs[0], "max_width");
+            mxSetField(plhs[0], 0, "max_width", mxCreateDoubleScalar(status.getState().getMaxWidth()));
+            
+            mxAddField(plhs[0], "is_grasped");
+            mxSetField(plhs[0], 0, "is_grasped", mxCreateLogicalScalar(status.getState().getIsGrasped()));
+            
+            mxAddField(plhs[0], "temperature");
+            mxSetField(plhs[0], 0, "temperature", mxCreateDoubleScalar(status.getState().getTemperature()));
+            
+            mxAddField(plhs[0], "time_stamp");
+            mxSetField(plhs[0], 0, "time_stamp", mxCreateDoubleScalar(status.getState().getTimeStamp()));
+            
+            // Command status as string
+            mxAddField(plhs[0], "command_status");
+            const char* status_str = "unknown";
+            switch (status.getCommandStatus()) {
+                case GripperCommandStatus::IDLE: status_str = "idle"; break;
+                case GripperCommandStatus::BUSY: status_str = "busy"; break;
+                case GripperCommandStatus::SUCCESS: status_str = "success"; break;
+                case GripperCommandStatus::FAILED: status_str = "failed"; break;
+                case GripperCommandStatus::TIMEOUT: status_str = "timeout"; break;
+                case GripperCommandStatus::STOPPED: status_str = "stopped"; break;
+            }
+            mxSetField(plhs[0], 0, "command_status", mxCreateString(status_str));
+            
+            mxAddField(plhs[0], "last_command");
+            mxSetField(plhs[0], 0, "last_command", mxCreateString(status.getLastCommand().cStr()));
+            
+            mxAddField(plhs[0], "error_message");
+            mxSetField(plhs[0], 0, "error_message", mxCreateString(status.getErrorMessage().cStr()));
+            
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Gripper wait failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Gripper wait failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to wait for gripper command (unknown error)");
+        }
+        return;
+    }
+
     // Set Collision Behavior
     if (!strcmp("set_collision_behavior", cmd)) {
         if (nlhs != 1 || nrhs != 10)

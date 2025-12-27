@@ -1,7 +1,190 @@
+// Copyright (c) 2025 Franka Robotics GmbH
+// Gripper Control - Async Implementation
+//
+// Provides async command handling for the Franka gripper via a dedicated
+// worker thread. Move and Grasp commands are executed asynchronously while
+// Stop and ReadState can be called at any time.
+
 #include "franka_robot_server/franka_robot_rpc_service.hpp"
 #include <franka/exception.h>
 #include <franka/gripper.h>
 #include <memory>
+#include <chrono>
+#include <iostream>
+
+// ============================================================================
+// Destructor - cleanup worker thread
+// ============================================================================
+
+FrankaRobotRPCServiceImpl::~FrankaRobotRPCServiceImpl() {
+    stopGripperWorkerThread();
+}
+
+// ============================================================================
+// Worker Thread Management
+// ============================================================================
+
+void FrankaRobotRPCServiceImpl::startGripperWorkerThread() {
+    if (gripper_worker_thread_.joinable()) {
+        return;  // Already running
+    }
+    
+    gripper_shutdown_requested_.store(false);
+    gripper_worker_thread_ = std::thread(&FrankaRobotRPCServiceImpl::gripperWorkerLoop, this);
+    KJ_LOG(INFO, "Gripper worker thread started");
+}
+
+void FrankaRobotRPCServiceImpl::stopGripperWorkerThread() {
+    gripper_shutdown_requested_.store(true);
+    
+    {
+        std::lock_guard<std::mutex> lock(gripper_mutex_);
+        gripper_cv_.notify_all();
+    }
+    
+    if (gripper_worker_thread_.joinable()) {
+        gripper_worker_thread_.join();
+    }
+    
+    KJ_LOG(INFO, "Gripper worker thread stopped");
+}
+
+void FrankaRobotRPCServiceImpl::gripperWorkerLoop() {
+    while (!gripper_shutdown_requested_.load()) {
+        GripperCommand cmd;
+        double width, speed, force, epsilon_inner, epsilon_outer, timeout;
+        
+        // Wait for command
+        {
+            std::unique_lock<std::mutex> lock(gripper_mutex_);
+            gripper_cv_.wait(lock, [this] {
+                return has_pending_gripper_command_ || gripper_shutdown_requested_.load();
+            });
+            
+            if (gripper_shutdown_requested_.load()) {
+                break;
+            }
+            
+            if (!has_pending_gripper_command_) {
+                continue;
+            }
+            
+            // Copy command parameters
+            cmd = pending_gripper_command_;
+            width = gripper_cmd_width_;
+            speed = gripper_cmd_speed_;
+            force = gripper_cmd_force_;
+            epsilon_inner = gripper_cmd_epsilon_inner_;
+            epsilon_outer = gripper_cmd_epsilon_outer_;
+            timeout = gripper_cmd_timeout_;
+            has_pending_gripper_command_ = false;
+        }
+        
+        // Execute command
+        gripper_command_status_.store(GripperCommandStatus::BUSY);
+        
+        bool success = false;
+        std::string error_msg;
+        
+        try {
+            auto start_time = std::chrono::steady_clock::now();
+            
+            // Execute the command with timeout monitoring
+            // Note: libfranka gripper commands block until completion or error
+            // The timeout is handled by calling stop() from another thread if needed
+            
+            switch (cmd) {
+                case GripperCommand::Move:
+                    KJ_LOG(INFO, "Gripper async: Executing move", width, speed);
+                    success = gripper_->move(width, speed);
+                    break;
+                    
+                case GripperCommand::Grasp:
+                    KJ_LOG(INFO, "Gripper async: Executing grasp", width, speed, force);
+                    success = gripper_->grasp(width, speed, force, epsilon_inner, epsilon_outer);
+                    break;
+                    
+                default:
+                    error_msg = "Unknown command";
+                    break;
+            }
+            
+            auto end_time = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration<double>(end_time - start_time).count();
+            
+            // Check if we exceeded timeout (command may have completed just in time)
+            if (elapsed > timeout && timeout > 0) {
+                success = false;
+                error_msg = "Command timed out after " + std::to_string(elapsed) + " seconds";
+                gripper_command_status_.store(GripperCommandStatus::TIMEOUT);
+            } else if (success) {
+                gripper_command_status_.store(GripperCommandStatus::SUCCESS);
+                KJ_LOG(INFO, "Gripper async: Command succeeded");
+            } else {
+                gripper_command_status_.store(GripperCommandStatus::FAILED);
+                error_msg = "Command returned false";
+                KJ_LOG(WARNING, "Gripper async: Command returned false");
+            }
+            
+        } catch (const franka::CommandException& e) {
+            error_msg = std::string("CommandException: ") + e.what();
+            KJ_LOG(ERROR, "Gripper async: CommandException", e.what());
+            gripper_command_status_.store(GripperCommandStatus::FAILED);
+        } catch (const franka::NetworkException& e) {
+            error_msg = std::string("NetworkException: ") + e.what();
+            KJ_LOG(ERROR, "Gripper async: NetworkException", e.what());
+            gripper_command_status_.store(GripperCommandStatus::FAILED);
+        } catch (const franka::Exception& e) {
+            error_msg = std::string("Exception: ") + e.what();
+            KJ_LOG(ERROR, "Gripper async: Exception", e.what());
+            gripper_command_status_.store(GripperCommandStatus::FAILED);
+        }
+        
+        // Update error message
+        {
+            std::lock_guard<std::mutex> lock(gripper_status_mutex_);
+            gripper_error_message_ = error_msg;
+        }
+        
+        // Notify waiting clients
+        gripper_done_cv_.notify_all();
+    }
+}
+
+// ============================================================================
+// Helper to fill GripperAsyncStatus
+// ============================================================================
+
+void FrankaRobotRPCServiceImpl::fillGripperAsyncStatus(GripperAsyncStatus::Builder& status) {
+    // Get current gripper state
+    if (gripper_) {
+        try {
+            franka::GripperState gs = gripper_->readOnce();
+            auto state = status.initState();
+            state.setWidth(gs.width);
+            state.setMaxWidth(gs.max_width);
+            state.setIsGrasped(gs.is_grasped);
+            state.setTemperature(gs.temperature);
+            state.setTimeStamp(gs.time.toSec());
+        } catch (const franka::Exception& e) {
+            KJ_LOG(WARNING, "Failed to read gripper state", e.what());
+        }
+    }
+    
+    // Set command status
+    status.setCommandStatus(gripper_command_status_.load());
+    
+    // Set string fields (protected by mutex)
+    {
+        std::lock_guard<std::mutex> lock(gripper_status_mutex_);
+        status.setLastCommand(gripper_last_command_name_);
+        status.setErrorMessage(gripper_error_message_);
+    }
+}
+
+// ============================================================================
+// Synchronous Gripper Methods (unchanged behavior)
+// ============================================================================
 
 kj::Promise<void> FrankaRobotRPCServiceImpl::getGripperState(
     capnp::CallContext<GetGripperStateParams, GetGripperStateResults> context) {
@@ -135,10 +318,25 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::gripperStop(
             gripper_ = std::make_unique<franka::Gripper>(robot_ip_);
         }
 
+        // stop() is thread-safe and will interrupt any running move/grasp command
+        // This is the key feature: stop can be called while move/grasp is in progress
         bool success = gripper_->stop();
+        
+        // Update async status if a command was running
+        if (gripper_command_status_.load() == GripperCommandStatus::BUSY) {
+            gripper_command_status_.store(GripperCommandStatus::STOPPED);
+            {
+                std::lock_guard<std::mutex> lock(gripper_status_mutex_);
+                gripper_error_message_ = "Command interrupted by stop";
+            }
+            // Notify waiting threads
+            gripper_done_cv_.notify_all();
+        }
         
         auto results = context.getResults();
         results.setSuccess(success);
+        
+        KJ_LOG(INFO, "Gripper stop executed", success);
 
     } catch (const franka::Exception& e) {
         KJ_LOG(ERROR, "Gripper stop failed", e.what());
@@ -147,4 +345,214 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::gripperStop(
     }
 
     return kj::READY_NOW;
-} 
+}
+
+// ============================================================================
+// Asynchronous Gripper Methods
+// ============================================================================
+
+kj::Promise<void> FrankaRobotRPCServiceImpl::gripperMoveAsync(
+    capnp::CallContext<GripperMoveAsyncParams, GripperMoveAsyncResults> context) {
+    
+    if (robot_ip_.empty()) {
+        KJ_FAIL_REQUIRE("Robot not initialized");
+    }
+
+    auto params = context.getParams();
+    double width = params.getWidth();
+    double speed = params.getSpeed();
+    double timeout = params.getTimeout();
+    
+    // Default timeout of 15 seconds if not specified or invalid
+    if (timeout <= 0) {
+        timeout = 15.0;
+    }
+
+    try {
+        // Initialize gripper if needed
+        if (!gripper_) {
+            gripper_ = std::make_unique<franka::Gripper>(robot_ip_);
+        }
+        
+        // Ensure worker thread is running
+        startGripperWorkerThread();
+        
+        // Check if a command is already in progress
+        if (gripper_command_status_.load() == GripperCommandStatus::BUSY) {
+            KJ_LOG(WARNING, "Gripper async: Command already in progress");
+            auto results = context.getResults();
+            results.setStarted(false);
+            return kj::READY_NOW;
+        }
+        
+        // Queue the command
+        {
+            std::lock_guard<std::mutex> lock(gripper_mutex_);
+            pending_gripper_command_ = GripperCommand::Move;
+            gripper_cmd_width_ = width;
+            gripper_cmd_speed_ = speed;
+            gripper_cmd_timeout_ = timeout;
+            has_pending_gripper_command_ = true;
+            
+            gripper_last_command_name_ = "move";
+            gripper_error_message_.clear();
+        }
+        
+        // Notify worker thread
+        gripper_cv_.notify_one();
+        
+        KJ_LOG(INFO, "Gripper async: Move command queued", width, speed, timeout);
+        
+        auto results = context.getResults();
+        results.setStarted(true);
+
+    } catch (const franka::Exception& e) {
+        KJ_LOG(ERROR, "Gripper async move failed to start", e.what());
+        auto results = context.getResults();
+        results.setStarted(false);
+    }
+
+    return kj::READY_NOW;
+}
+
+kj::Promise<void> FrankaRobotRPCServiceImpl::gripperGraspAsync(
+    capnp::CallContext<GripperGraspAsyncParams, GripperGraspAsyncResults> context) {
+    
+    if (robot_ip_.empty()) {
+        KJ_FAIL_REQUIRE("Robot not initialized");
+    }
+
+    auto params = context.getParams();
+    double width = params.getWidth();
+    double speed = params.getSpeed();
+    double force = params.getForce();
+    double epsilon_inner = params.getEpsilonInner();
+    double epsilon_outer = params.getEpsilonOuter();
+    double timeout = params.getTimeout();
+    
+    // Default timeout of 15 seconds if not specified or invalid
+    if (timeout <= 0) {
+        timeout = 15.0;
+    }
+
+    try {
+        // Initialize gripper if needed
+        if (!gripper_) {
+            gripper_ = std::make_unique<franka::Gripper>(robot_ip_);
+        }
+        
+        // Ensure worker thread is running
+        startGripperWorkerThread();
+        
+        // Check if a command is already in progress
+        if (gripper_command_status_.load() == GripperCommandStatus::BUSY) {
+            KJ_LOG(WARNING, "Gripper async: Command already in progress");
+            auto results = context.getResults();
+            results.setStarted(false);
+            return kj::READY_NOW;
+        }
+        
+        // Queue the command
+        {
+            std::lock_guard<std::mutex> lock(gripper_mutex_);
+            pending_gripper_command_ = GripperCommand::Grasp;
+            gripper_cmd_width_ = width;
+            gripper_cmd_speed_ = speed;
+            gripper_cmd_force_ = force;
+            gripper_cmd_epsilon_inner_ = epsilon_inner;
+            gripper_cmd_epsilon_outer_ = epsilon_outer;
+            gripper_cmd_timeout_ = timeout;
+            has_pending_gripper_command_ = true;
+            
+            gripper_last_command_name_ = "grasp";
+            gripper_error_message_.clear();
+        }
+        
+        // Notify worker thread
+        gripper_cv_.notify_one();
+        
+        KJ_LOG(INFO, "Gripper async: Grasp command queued", width, speed, force, timeout);
+        
+        auto results = context.getResults();
+        results.setStarted(true);
+
+    } catch (const franka::Exception& e) {
+        KJ_LOG(ERROR, "Gripper async grasp failed to start", e.what());
+        auto results = context.getResults();
+        results.setStarted(false);
+    }
+
+    return kj::READY_NOW;
+}
+
+kj::Promise<void> FrankaRobotRPCServiceImpl::getGripperAsyncStatus(
+    capnp::CallContext<GetGripperAsyncStatusParams, GetGripperAsyncStatusResults> context) {
+    
+    if (robot_ip_.empty()) {
+        KJ_FAIL_REQUIRE("Robot not initialized");
+    }
+
+    try {
+        if (!gripper_) {
+            gripper_ = std::make_unique<franka::Gripper>(robot_ip_);
+        }
+
+        auto results = context.getResults();
+        auto status = results.initStatus();
+        fillGripperAsyncStatus(status);
+
+    } catch (const franka::Exception& e) {
+        KJ_LOG(ERROR, "Failed to get gripper async status", e.what());
+        throw;
+    }
+
+    return kj::READY_NOW;
+}
+
+kj::Promise<void> FrankaRobotRPCServiceImpl::gripperWaitForCommand(
+    capnp::CallContext<GripperWaitForCommandParams, GripperWaitForCommandResults> context) {
+    
+    if (robot_ip_.empty()) {
+        KJ_FAIL_REQUIRE("Robot not initialized");
+    }
+
+    auto params = context.getParams();
+    double timeout = params.getTimeout();
+    
+    // Default timeout if not specified
+    if (timeout <= 0) {
+        timeout = 30.0;  // 30 second default wait timeout
+    }
+
+    try {
+        if (!gripper_) {
+            gripper_ = std::make_unique<franka::Gripper>(robot_ip_);
+        }
+
+        // Wait for command completion or timeout
+        {
+            std::unique_lock<std::mutex> lock(gripper_mutex_);
+            auto deadline = std::chrono::steady_clock::now() + 
+                           std::chrono::duration<double>(timeout);
+            
+            bool completed = gripper_done_cv_.wait_until(lock, deadline, [this] {
+                auto status = gripper_command_status_.load();
+                return status != GripperCommandStatus::BUSY;
+            });
+            
+            if (!completed) {
+                KJ_LOG(WARNING, "Gripper wait: Timed out waiting for command");
+            }
+        }
+
+        auto results = context.getResults();
+        auto status = results.initStatus();
+        fillGripperAsyncStatus(status);
+
+    } catch (const franka::Exception& e) {
+        KJ_LOG(ERROR, "Failed during gripper wait", e.what());
+        throw;
+    }
+
+    return kj::READY_NOW;
+}

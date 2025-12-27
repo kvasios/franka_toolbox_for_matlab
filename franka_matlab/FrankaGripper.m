@@ -1,8 +1,53 @@
 classdef FrankaGripper < handle
+    %FRANKAGRIPPER Interface to Franka gripper with async support
+    %
+    %   The gripper provides both synchronous and asynchronous execution:
+    %
+    %   Synchronous (blocking, default):
+    %       gripper.move(0.08, 0.1)           % Blocks until complete
+    %       gripper.grasp(0.02, 0.1, 40)      % Blocks until complete
+    %
+    %   Asynchronous (non-blocking):
+    %       gripper.move(0.08, 0.1, 'Async', true)   % Returns immediately
+    %       gripper.grasp(0.02, 0.1, 40, 'Async', true)
+    %
+    %   Async control methods:
+    %       status()    - Get current command status (includes gripper state)
+    %       wait()      - Wait for async command completion
+    %       isBusy()    - Check if command is in progress
+    %       stop()      - Stop/interrupt current motion
+    %
+    %   Example (async move with polling):
+    %       gripper.move(0.08, 0.1, 'Async', true);
+    %       while gripper.isBusy()
+    %           s = gripper.status();
+    %           fprintf('Width: %.3f m\n', s.width);
+    %           pause(0.1);
+    %       end
+    %
+    %   Example (async grasp with wait):
+    %       gripper.grasp(0.02, 0.1, 40, 'Async', true);
+    %       result = gripper.wait(10);  % Wait up to 10 seconds
+    %       if strcmp(result.command_status, 'success')
+    %           disp('Object grasped!');
+    %       end
+    %
+    %   Example (stop during async command):
+    %       gripper.move(0.08, 0.02, 'Async', true, 'Timeout', 30);
+    %       pause(1);
+    %       gripper.stop();  % Interrupt the move
     
     properties (Access = private)
         frankaRobotHandle
         isInitialized = false
+    end
+    
+    properties (Constant, Access = private)
+        DefaultSpeed = 0.1           % m/s
+        DefaultForce = 50            % N
+        DefaultEpsilon = 0.1         % m (for grasp tolerance)
+        DefaultTimeout = 15.0        % seconds
+        DefaultWaitTimeout = 30.0    % seconds
     end
     
     methods
@@ -16,82 +61,159 @@ classdef FrankaGripper < handle
         
         %% Private Methods
         function initializeGripper(obj)
-            % Initialize the gripper on the robot
             if ~isempty(obj.frankaRobotHandle) && ~obj.isInitialized
                 franka_robot('initialize_gripper', obj.frankaRobotHandle);
+                obj.isInitialized = true;
             end
         end
         
         %% Gripper State
-        function state = state(obj)
+        function s = state(obj)
             % Get the current state of the gripper
             % Returns:
-            %   state - Current gripper state
+            %   s - Struct with fields: width, max_width, is_grasped,
+            %       temperature, time_stamp
             obj.initializeGripper();
-            state = franka_robot('gripper_state', obj.frankaRobotHandle);
+            s = franka_robot('gripper_state', obj.frankaRobotHandle);
         end
         
-        %% Gripper Homing
+        %% Homing
         function result = homing(obj)
-            % Perform gripper homing
+            % Perform gripper homing (always blocking)
             % Returns:
             %   result - True if homing was successful
             obj.initializeGripper();
             result = franka_robot('gripper_homing', obj.frankaRobotHandle);
         end
         
-        %% Gripper Grasp
-        function result = grasp(obj, width, speed, force, epsilon_inner, epsilon_outer)
-            % Grasp an object with the gripper
-            % Inputs:
-            %   width - Target width in meters
-            %   speed - Speed of the motion (default: 0.1)
-            %   force - Grasping force in N (default: 50)
-            %   epsilon_inner - Inner epsilon for grasping (default: 0.1)
-            %   epsilon_outer - Outer epsilon for grasping (default: 0.1)
-            % Returns:
-            %   result - True if grasping was successful
-            obj.initializeGripper();
-            % Set default values if not provided
-            if nargin < 6
-                epsilon_outer = 0.1;
-            end
-            if nargin < 5
-                epsilon_inner = 0.1;
-            end
-            if nargin < 4
-                force = 50;
-            end
-            if nargin < 3
-                speed = 0.1;
-            end
-            
-            result = franka_robot('gripper_grasp', obj.frankaRobotHandle, ...
-                width, speed, force, epsilon_inner, epsilon_outer);
-        end
-        
-        %% Gripper Move
-        function result = move(obj, width, speed)
+        %% Move
+        function result = move(obj, width, speed, varargin)
             % Move the gripper to a specific width
+            %
+            % Syntax:
+            %   result = gripper.move(width)
+            %   result = gripper.move(width, speed)
+            %   result = gripper.move(width, speed, 'Async', true)
+            %   result = gripper.move(width, speed, 'Async', true, 'Timeout', 15)
+            %
             % Inputs:
-            %   width - Target width in meters
-            %   speed - Speed of the motion (default: 0.1)
+            %   width   - Target width in meters
+            %   speed   - Speed of motion (default: 0.1 m/s)
+            %
+            % Name-Value Arguments:
+            %   'Async'   - If true, return immediately (default: false)
+            %   'Timeout' - Max time for async command in seconds (default: 15)
+            %
             % Returns:
-            %   result - True if motion was successful
+            %   result - If sync: true if motion succeeded
+            %            If async: true if command was started
             obj.initializeGripper();
-            if nargin < 3
-                speed = 0.1; % Default speed
+            
+            if nargin < 3 || isempty(speed), speed = obj.DefaultSpeed; end
+            
+            p = inputParser;
+            addParameter(p, 'Async', false, @islogical);
+            addParameter(p, 'Timeout', obj.DefaultTimeout, @isnumeric);
+            parse(p, varargin{:});
+            
+            if p.Results.Async
+                result = franka_robot('gripper_move_async', obj.frankaRobotHandle, ...
+                    width, speed, p.Results.Timeout);
+            else
+                result = franka_robot('gripper_move', obj.frankaRobotHandle, width, speed);
             end
-            result = franka_robot('gripper_move', obj.frankaRobotHandle, width, speed);
         end
         
-        %% Gripper Stop
+        %% Grasp
+        function result = grasp(obj, width, speed, force, epsilon_inner, epsilon_outer, varargin)
+            % Grasp an object with the gripper
+            %
+            % Syntax:
+            %   result = gripper.grasp(width)
+            %   result = gripper.grasp(width, speed, force)
+            %   result = gripper.grasp(width, speed, force, 'Async', true)
+            %   result = gripper.grasp(width, speed, force, eps_in, eps_out, 'Async', true)
+            %
+            % Inputs:
+            %   width         - Target width in meters
+            %   speed         - Speed of motion (default: 0.1 m/s)
+            %   force         - Grasping force in N (default: 50 N)
+            %   epsilon_inner - Inner tolerance (default: 0.1 m)
+            %   epsilon_outer - Outer tolerance (default: 0.1 m)
+            %
+            % Name-Value Arguments:
+            %   'Async'   - If true, return immediately (default: false)
+            %   'Timeout' - Max time for async command in seconds (default: 15)
+            %
+            % Returns:
+            %   result - If sync: true if grasp succeeded
+            %            If async: true if command was started
+            obj.initializeGripper();
+            
+            % Handle flexible argument parsing (positional + name-value)
+            if nargin < 3 || isempty(speed), speed = obj.DefaultSpeed; end
+            if nargin < 4 || isempty(force), force = obj.DefaultForce; end
+            if nargin < 5 || isempty(epsilon_inner), epsilon_inner = obj.DefaultEpsilon; end
+            if nargin < 6 || isempty(epsilon_outer), epsilon_outer = obj.DefaultEpsilon; end
+            
+            p = inputParser;
+            addParameter(p, 'Async', false, @islogical);
+            addParameter(p, 'Timeout', obj.DefaultTimeout, @isnumeric);
+            parse(p, varargin{:});
+            
+            if p.Results.Async
+                result = franka_robot('gripper_grasp_async', obj.frankaRobotHandle, ...
+                    width, speed, force, epsilon_inner, epsilon_outer, p.Results.Timeout);
+            else
+                result = franka_robot('gripper_grasp', obj.frankaRobotHandle, ...
+                    width, speed, force, epsilon_inner, epsilon_outer);
+            end
+        end
+        
+        %% Stop
         function result = stop(obj)
             % Stop the gripper motion
+            % Can interrupt async commands - the status will show 'stopped'
             % Returns:
             %   result - True if stop was successful
             obj.initializeGripper();
             result = franka_robot('gripper_stop', obj.frankaRobotHandle);
         end
+        
+        %% Async Status
+        function s = status(obj)
+            % Get the current async command status and gripper state
+            % Returns:
+            %   s - Struct with fields:
+            %       width, max_width, is_grasped, temperature, time_stamp
+            %       command_status - 'idle', 'busy', 'success', 'failed', 
+            %                        'timeout', or 'stopped'
+            %       last_command   - Name of last/current command
+            %       error_message  - Error message if failed
+            obj.initializeGripper();
+            s = franka_robot('gripper_async_status', obj.frankaRobotHandle);
+        end
+        
+        %% Wait
+        function s = wait(obj, timeout)
+            % Wait for the current async command to complete
+            % Inputs:
+            %   timeout - Maximum wait time in seconds (default: 30)
+            % Returns:
+            %   s - Same as status() after command completes
+            obj.initializeGripper();
+            
+            if nargin < 2, timeout = obj.DefaultWaitTimeout; end
+            s = franka_robot('gripper_wait', obj.frankaRobotHandle, timeout);
+        end
+        
+        %% isBusy
+        function busy = isBusy(obj)
+            % Check if an async command is currently in progress
+            % Returns:
+            %   busy - True if a command is running
+            s = obj.status();
+            busy = strcmp(s.command_status, 'busy');
+        end
     end
-end 
+end

@@ -176,6 +176,61 @@ public:
         }
     }
 
+    // Async gripper methods
+    bool gripperMoveAsync(double width, double speed, double timeout = 15.0) {
+        auto request = rpcInterface.gripperMoveAsyncRequest();
+        request.setWidth(width);
+        request.setSpeed(speed);
+        request.setTimeout(timeout);
+
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStarted();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    bool gripperGraspAsync(double width, double speed, double force,
+                           double epsilon_inner, double epsilon_outer,
+                           double timeout = 15.0) {
+        auto request = rpcInterface.gripperGraspAsyncRequest();
+        request.setWidth(width);
+        request.setSpeed(speed);
+        request.setForce(force);
+        request.setEpsilonInner(epsilon_inner);
+        request.setEpsilonOuter(epsilon_outer);
+        request.setTimeout(timeout);
+
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStarted();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    GripperAsyncStatus::Reader getGripperAsyncStatus() {
+        auto request = rpcInterface.getGripperAsyncStatusRequest();
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStatus();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    GripperAsyncStatus::Reader gripperWaitForCommand(double timeout = 30.0) {
+        auto request = rpcInterface.gripperWaitForCommandRequest();
+        request.setTimeout(timeout);
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStatus();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
     bool setCollisionBehavior(
         const std::array<double, 7>& lower_torque_thresholds_acceleration,
         const std::array<double, 7>& upper_torque_thresholds_acceleration,

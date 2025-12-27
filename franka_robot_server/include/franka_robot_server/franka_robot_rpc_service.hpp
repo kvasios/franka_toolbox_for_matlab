@@ -4,6 +4,10 @@
 #include "rpc.capnp.h"
 #include <string>
 #include <memory>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 #include <franka/robot.h>
 #include <franka/model.h>
 #include <franka/gripper.h>
@@ -13,6 +17,7 @@ class FrankaRobotRPCServiceImpl final : public RPCService::Server {
 public:
     FrankaRobotRPCServiceImpl() = default;
     explicit FrankaRobotRPCServiceImpl(uint16_t port) : server_port_(port) {}
+    ~FrankaRobotRPCServiceImpl();
 
     kj::Promise<void> automaticErrorRecovery(
         capnp::CallContext<AutomaticErrorRecoveryParams, AutomaticErrorRecoveryResults> context) override;
@@ -52,6 +57,19 @@ public:
 
     kj::Promise<void> gripperStop(
         capnp::CallContext<GripperStopParams, GripperStopResults> context) override;
+
+    // Async gripper methods
+    kj::Promise<void> gripperMoveAsync(
+        capnp::CallContext<GripperMoveAsyncParams, GripperMoveAsyncResults> context) override;
+
+    kj::Promise<void> gripperGraspAsync(
+        capnp::CallContext<GripperGraspAsyncParams, GripperGraspAsyncResults> context) override;
+
+    kj::Promise<void> getGripperAsyncStatus(
+        capnp::CallContext<GetGripperAsyncStatusParams, GetGripperAsyncStatusResults> context) override;
+
+    kj::Promise<void> gripperWaitForCommand(
+        capnp::CallContext<GripperWaitForCommandParams, GripperWaitForCommandResults> context) override;
 
     kj::Promise<void> setCollisionBehavior(
         capnp::CallContext<SetCollisionBehaviorParams, SetCollisionBehaviorResults> context) override;
@@ -105,4 +123,35 @@ private:
     std::unique_ptr<franka::Gripper> gripper_;
     std::unique_ptr<franka::VacuumGripper> vacuum_gripper_;
     std::string robot_ip_;
+
+    // Async gripper command infrastructure
+    void startGripperWorkerThread();
+    void stopGripperWorkerThread();
+    void gripperWorkerLoop();
+    void fillGripperAsyncStatus(GripperAsyncStatus::Builder& status);
+    
+    std::thread gripper_worker_thread_;
+    std::mutex gripper_mutex_;
+    std::condition_variable gripper_cv_;
+    std::condition_variable gripper_done_cv_;  // Notified when command completes
+    std::atomic<bool> gripper_shutdown_requested_{false};
+    
+    // Async command state
+    enum class GripperCommand { None, Move, Grasp };
+    GripperCommand pending_gripper_command_{GripperCommand::None};
+    bool has_pending_gripper_command_{false};
+    
+    // Command parameters
+    double gripper_cmd_width_{0.0};
+    double gripper_cmd_speed_{0.0};
+    double gripper_cmd_force_{0.0};
+    double gripper_cmd_epsilon_inner_{0.0};
+    double gripper_cmd_epsilon_outer_{0.0};
+    double gripper_cmd_timeout_{15.0};
+    
+    // Command status (atomic for thread-safe reads)
+    std::atomic<GripperCommandStatus> gripper_command_status_{GripperCommandStatus::IDLE};
+    std::string gripper_last_command_name_;
+    std::string gripper_error_message_;
+    mutable std::mutex gripper_status_mutex_;  // Protects string members
 }; 

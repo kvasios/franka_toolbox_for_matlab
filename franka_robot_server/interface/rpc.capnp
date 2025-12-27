@@ -55,6 +55,24 @@ struct GripperState {
     timeStamp @4 :Float64;  # Time since last update
 }
 
+# Status of async gripper commands
+enum GripperCommandStatus {
+    idle @0;        # No command running
+    busy @1;        # Command in progress
+    success @2;     # Last command succeeded
+    failed @3;      # Last command failed
+    timeout @4;     # Last command timed out
+    stopped @5;     # Last command was stopped
+}
+
+# Full gripper status including async command state
+struct GripperAsyncStatus {
+    state @0 :GripperState;           # Current gripper state
+    commandStatus @1 :GripperCommandStatus;  # Async command status
+    lastCommand @2 :Text;             # Name of last/current command
+    errorMessage @3 :Text;            # Error message if failed
+}
+
 struct VacuumGripperState {
     inControlRange @0 :Bool;  # True if vacuum is within control range
     partDetached @1 :Bool;  # True if part is detached
@@ -84,12 +102,19 @@ interface RPCService {
     jointPointToPointMotion @4 (targetConfiguration :List(Float64), speedFactor :Float64) -> (result :Bool);
     jointTrajectoryMotion @5 (trajectory :List(JointTrajectoryPoint)) -> (result :Bool);
     
-    # Gripper control
+    # Gripper control (synchronous - blocking)
     getGripperState @6 () -> (state :GripperState);
     gripperGrasp @7 (width :Float64, speed :Float64, force :Float64, epsilonInner :Float64, epsilonOuter :Float64) -> (success :Bool);
     gripperHoming @8 () -> (success :Bool);
     gripperMove @9 (width :Float64, speed :Float64) -> (success :Bool);
     gripperStop @10 () -> (success :Bool);
+    
+    # Gripper control (asynchronous - non-blocking)
+    # These return immediately after starting the command. Use getGripperAsyncStatus to poll.
+    gripperMoveAsync @26 (width :Float64, speed :Float64, timeout :Float64) -> (started :Bool);
+    gripperGraspAsync @27 (width :Float64, speed :Float64, force :Float64, epsilonInner :Float64, epsilonOuter :Float64, timeout :Float64) -> (started :Bool);
+    getGripperAsyncStatus @28 () -> (status :GripperAsyncStatus);
+    gripperWaitForCommand @29 (timeout :Float64) -> (status :GripperAsyncStatus);  # Block until command completes or timeout
 
     # Collision behavior
     setCollisionBehavior @11 (
