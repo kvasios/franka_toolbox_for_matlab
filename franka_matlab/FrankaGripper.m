@@ -45,7 +45,7 @@ classdef FrankaGripper < handle
     properties (Constant, Access = private)
         DefaultSpeed = 0.1           % m/s
         DefaultForce = 50            % N
-        DefaultEpsilon = 0.1         % m (for grasp tolerance)
+        DefaultEpsilon = 0.005         % m (for grasp tolerance)
         DefaultTimeout = 15.0        % seconds
         DefaultWaitTimeout = 30.0    % seconds
     end
@@ -138,8 +138,8 @@ classdef FrankaGripper < handle
             %   width         - Target width in meters
             %   speed         - Speed of motion (default: 0.1 m/s)
             %   force         - Grasping force in N (default: 50 N)
-            %   epsilon_inner - Inner tolerance (default: 0.1 m)
-            %   epsilon_outer - Outer tolerance (default: 0.1 m)
+            %   epsilon_inner - Inner tolerance (default: 0.005 m)
+            %   epsilon_outer - Outer tolerance (default: 0.005 m)
             %
             % Name-Value Arguments:
             %   'Async'   - If true, return immediately (default: false)
@@ -150,6 +150,19 @@ classdef FrankaGripper < handle
             %            If async: true if command was started
             obj.initializeGripper();
             
+            % Allow name-value usage without specifying epsilons, e.g.:
+            %   gripper.grasp(w, v, f, 'Async', true)
+            % Without this, MATLAB binds 'Async'/true to epsilon_inner/epsilon_outer and
+            % the MEX sends garbage epsilon values.
+            if nargin >= 5 && (ischar(epsilon_inner) || isstring(epsilon_inner))
+                varargin = [{epsilon_inner, epsilon_outer}, varargin];
+                epsilon_inner = [];
+                epsilon_outer = [];
+            elseif nargin >= 6 && (ischar(epsilon_outer) || isstring(epsilon_outer))
+                varargin = [{epsilon_outer}, varargin];
+                epsilon_outer = [];
+            end
+
             % Handle flexible argument parsing (positional + name-value)
             if nargin < 3 || isempty(speed), speed = obj.DefaultSpeed; end
             if nargin < 4 || isempty(force), force = obj.DefaultForce; end
@@ -186,8 +199,10 @@ classdef FrankaGripper < handle
             % Returns:
             %   s - Struct with fields:
             %       width, max_width, is_grasped, temperature, time_stamp
-            %       command_status - 'idle', 'busy', 'success', 'failed', 
+            %       command_status - 'idle', 'busy', 'success', 'failed',
             %                        'timeout', or 'stopped'
+            %         NOTE: for grasp(), 'success' means the command completed without
+            %         error; whether an object is held is indicated by is_grasped.
             %       last_command   - Name of last/current command
             %       error_message  - Error message if failed
             obj.initializeGripper();

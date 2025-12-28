@@ -151,6 +151,7 @@ private:
     
     // Command status (atomic for thread-safe reads)
     std::atomic<GripperCommandStatus> gripper_command_status_{GripperCommandStatus::IDLE};
+    std::atomic<bool> gripper_stop_requested_{false};  // Set when stop() is called
     std::string gripper_last_command_name_;
     std::string gripper_error_message_;
     mutable std::mutex gripper_status_mutex_;  // Protects string members

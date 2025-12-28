@@ -299,6 +299,11 @@ classdef FrankaRobotServer < handle
     
     methods (Static)
         function cleanupRemoteWorkspace(username, serverIP, sshPort)
+            % Static version - requires explicit credentials
+            if nargin < 3
+                error('FrankaRobotServer:MissingArgs', ...
+                    'Use instance method deleteRemoteWorkspace() or provide all arguments');
+            end
             if ispc()
                 root = ['/home/' username '/franka_matlab_ws'];
             else
