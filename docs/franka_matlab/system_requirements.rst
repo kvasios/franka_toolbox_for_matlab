@@ -38,3 +38,5 @@ The Target PC is the Real-Time Kernel Linux PC responsible for maintaing the rea
 in the network like the AI Companion or NVIDIA Jetson.
 
 All the same system requirements for FCI and libfranka apply for the Target PC.
+
+The prebuild binaries for the Target PC are available for the amd64 and arm64 (NVIDIA Jetson) architectures.

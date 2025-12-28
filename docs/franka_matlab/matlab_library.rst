@@ -84,7 +84,7 @@ Read Robot State
 
 .. code-block:: matlab
 
-    rs = fr.read_state();
+    rs = fr.state();
 
 Returns a struct with the current robot state.
 

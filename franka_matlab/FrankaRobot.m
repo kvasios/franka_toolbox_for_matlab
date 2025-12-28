@@ -135,7 +135,7 @@ classdef FrankaRobot < handle
                 franka_robot('automatic_error_recovery', obj.frankaRobotHandle, args{:}));
         end
 
-        function robot_state = read_state(obj)
+        function robot_state = state(obj)
             obj.checkHandle();
             robot_state = obj.executeWithReconnect(@() ...
                 franka_robot('robot_state', obj.frankaRobotHandle));
