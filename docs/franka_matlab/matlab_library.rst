@@ -79,12 +79,12 @@ Get Joint Poses
 
 Returns a 7-element array with the current robot joint poses.
 
-Get Robot State
-^^^^^^^^^^^^^^^
+Read Robot State
+^^^^^^^^^^^^^^^^
 
 .. code-block:: matlab
 
-    rs = fr.robot_state();
+    rs = fr.read_state();
 
 Returns a struct with the current robot state.
 
@@ -148,7 +148,7 @@ Robot Homing
 
 .. code-block:: matlab
 
-    result = fr.robot_homing();
+    result = fr.homing();
 
 Moves the robot to its home configuration using point-to-point motion.
 
@@ -287,6 +287,19 @@ FrankaGripper Class
 -------------------
 
 The ``FrankaGripper`` class is accessed through the ``Gripper`` property of a ``FrankaRobot`` instance.
+It provides both synchronous (blocking) and asynchronous (non-blocking) execution modes.
+
+**Synchronous vs Asynchronous Execution**
+
+.. code-block:: matlab
+
+    % Synchronous (blocking, default) - waits until complete
+    fr.Gripper.move(0.08, 0.1);
+    fr.Gripper.grasp(0.02, 0.1, 40);
+
+    % Asynchronous (non-blocking) - returns immediately
+    fr.Gripper.move(0.08, 0.1, 'Async', true);
+    fr.Gripper.grasp(0.02, 0.1, 40, 'Async', true);
 
 Get Gripper State
 ^^^^^^^^^^^^^^^^^
@@ -295,7 +308,8 @@ Get Gripper State
 
     state = fr.Gripper.state();
 
-Returns a struct with the current gripper state.
+Returns a struct with the current gripper state containing: ``width``, ``max_width``, 
+``is_grasped``, ``temperature``, ``time_stamp``.
 
 Gripper Homing
 ^^^^^^^^^^^^^^
@@ -304,42 +318,62 @@ Gripper Homing
 
     result = fr.Gripper.homing();
 
-Performs gripper homing. Returns true if successful.
-
-Grasp Object
-^^^^^^^^^^^^
-
-.. code-block:: matlab
-
-    result = fr.Gripper.grasp(width, speed, force, epsilon_inner, epsilon_outer);
-
-Grasps an object with the specified width.
-
-Parameters:
-    - width: Target width in meters.
-    - speed: Speed of the motion (default: 0.1).
-    - force: Grasping force in N (default: 50).
-    - epsilon_inner: Inner epsilon for grasping (default: 0.1).
-    - epsilon_outer: Outer epsilon for grasping (default: 0.1).
-
-Returns:
-    - true if grasping was successful, false otherwise.
+Performs gripper homing (always blocking). Returns true if successful.
 
 Move Gripper
 ^^^^^^^^^^^^
 
 .. code-block:: matlab
 
+    % Synchronous (blocking)
     result = fr.Gripper.move(width, speed);
+
+    % Asynchronous (non-blocking)
+    result = fr.Gripper.move(width, speed, 'Async', true);
+    result = fr.Gripper.move(width, speed, 'Async', true, 'Timeout', 15);
 
 Moves the gripper to a specific width.
 
 Parameters:
     - width: Target width in meters.
-    - speed: Speed of the motion (default: 0.1).
+    - speed: Speed of the motion (default: 0.1 m/s).
+
+Name-Value Arguments:
+    - 'Async': If true, return immediately without waiting (default: false).
+    - 'Timeout': Maximum time for async command in seconds (default: 15).
 
 Returns:
-    - true if motion was successful, false otherwise.
+    - Sync mode: true if motion was successful, false otherwise.
+    - Async mode: true if command was started successfully.
+
+Grasp Object
+^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    % Synchronous (blocking)
+    result = fr.Gripper.grasp(width, speed, force, epsilon_inner, epsilon_outer);
+
+    % Asynchronous (non-blocking)
+    result = fr.Gripper.grasp(width, speed, force, 'Async', true);
+    result = fr.Gripper.grasp(width, speed, force, eps_in, eps_out, 'Async', true);
+
+Grasps an object with the specified width.
+
+Parameters:
+    - width: Target width in meters.
+    - speed: Speed of the motion (default: 0.1 m/s).
+    - force: Grasping force in N (default: 50 N).
+    - epsilon_inner: Inner tolerance in meters (default: 0.005 m).
+    - epsilon_outer: Outer tolerance in meters (default: 0.005 m).
+
+Name-Value Arguments:
+    - 'Async': If true, return immediately without waiting (default: false).
+    - 'Timeout': Maximum time for async command in seconds (default: 15).
+
+Returns:
+    - Sync mode: true if grasping was successful, false otherwise.
+    - Async mode: true if command was started successfully.
 
 Stop Gripper
 ^^^^^^^^^^^^
@@ -348,12 +382,91 @@ Stop Gripper
 
     result = fr.Gripper.stop();
 
-Stops the gripper motion. Returns true if successful.
+Stops the gripper motion. Can interrupt async commands. Returns true if successful.
+
+Get Async Status
+^^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    status = fr.Gripper.status();
+
+Returns a struct with the current async command status and gripper state:
+
+- ``width``, ``max_width``, ``is_grasped``, ``temperature``, ``time_stamp``: Gripper state fields
+- ``command_status``: One of 'idle', 'busy', 'success', 'failed', 'timeout', or 'stopped'
+- ``last_command``: Name of last/current command
+- ``error_message``: Error message if command failed
+
+.. note::
+    For ``grasp()``, 'success' means the command completed without error.
+    Whether an object is actually held is indicated by ``is_grasped``.
+
+Wait for Async Command
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    status = fr.Gripper.wait(timeout);
+
+Blocks until the current async command completes or timeout is reached.
+
+Parameters:
+    - timeout: Maximum wait time in seconds (default: 30).
+
+Returns:
+    - Same struct as ``status()`` after command completes.
+
+Check if Busy
+^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    busy = fr.Gripper.isBusy();
+
+Returns true if an async command is currently in progress.
+
+**Async Usage Examples**
+
+.. code-block:: matlab
+
+    % Example: Async move with polling
+    fr.Gripper.move(0.08, 0.1, 'Async', true);
+    while fr.Gripper.isBusy()
+        s = fr.Gripper.status();
+        fprintf('Width: %.3f m\n', s.width);
+        pause(0.1);
+    end
+
+    % Example: Async grasp with wait
+    fr.Gripper.grasp(0.02, 0.1, 40, 'Async', true);
+    result = fr.Gripper.wait(10);  % Wait up to 10 seconds
+    if strcmp(result.command_status, 'success') && result.is_grasped
+        disp('Object grasped!');
+    end
+
+    % Example: Stop during async command
+    fr.Gripper.move(0.08, 0.02, 'Async', true);
+    pause(1);
+    fr.Gripper.stop();  % Interrupt the move
 
 FrankaVacuumGripper Class
 -------------------------
 
 The ``FrankaVacuumGripper`` class is accessed through the ``VacuumGripper`` property of a ``FrankaRobot`` instance.
+It provides both synchronous (blocking) and asynchronous (non-blocking) execution modes.
+
+**Synchronous vs Asynchronous Execution**
+
+.. code-block:: matlab
+
+    % Synchronous (blocking, default) - waits until complete
+    fr.VacuumGripper.vacuum(0, 5000, 0);
+    fr.VacuumGripper.dropOff(5000);
+
+    % Asynchronous (non-blocking) - returns immediately
+    fr.VacuumGripper.vacuum(0, 5000, 0, 'Async', true);
+    fr.VacuumGripper.dropOff(5000, 'Async', true);
 
 Get Vacuum Gripper State
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -362,14 +475,20 @@ Get Vacuum Gripper State
 
     state = fr.VacuumGripper.state();
 
-Returns a struct with the current vacuum gripper state, including vacuum level and part presence.
+Returns a struct with the current vacuum gripper state containing: ``in_control_range``, 
+``part_detached``, ``part_present``, ``device_status``, ``actual_power``, ``vacuum``, ``time``.
 
 Apply Vacuum
 ^^^^^^^^^^^^
 
 .. code-block:: matlab
 
+    % Synchronous (blocking)
     result = fr.VacuumGripper.vacuum(control_point, timeout, profile);
+
+    % Asynchronous (non-blocking)
+    result = fr.VacuumGripper.vacuum(control_point, timeout, profile, 'Async', true);
+    result = fr.VacuumGripper.vacuum(control_point, timeout, profile, 'Async', true, 'Timeout', 15);
 
 Applies vacuum to the gripper.
 
@@ -378,23 +497,38 @@ Parameters:
     - timeout: Timeout in milliseconds (default: 5000).
     - profile: Production setup profile (default: 0).
 
+Name-Value Arguments:
+    - 'Async': If true, return immediately without waiting (default: false).
+    - 'Timeout': Maximum time for async command in seconds (default: 15).
+
 Returns:
-    - true if vacuum was successfully applied, false otherwise.
+    - Sync mode: true if vacuum was successfully applied, false otherwise.
+    - Async mode: true if command was started successfully.
 
 Drop Off
 ^^^^^^^^
 
 .. code-block:: matlab
 
+    % Synchronous (blocking)
     result = fr.VacuumGripper.dropOff(timeout);
+
+    % Asynchronous (non-blocking)
+    result = fr.VacuumGripper.dropOff(timeout, 'Async', true);
+    result = fr.VacuumGripper.dropOff(timeout, 'Async', true, 'Timeout', 15);
 
 Drops off the currently held object.
 
 Parameters:
     - timeout: Timeout in milliseconds (default: 5000).
 
+Name-Value Arguments:
+    - 'Async': If true, return immediately without waiting (default: false).
+    - 'Timeout': Maximum time for async command in seconds (default: 15).
+
 Returns:
-    - true if drop off was successful, false otherwise.
+    - Sync mode: true if drop off was successful, false otherwise.
+    - Async mode: true if command was started successfully.
 
 Stop Vacuum Gripper
 ^^^^^^^^^^^^^^^^^^^
@@ -403,4 +537,67 @@ Stop Vacuum Gripper
 
     result = fr.VacuumGripper.stop();
 
-Stops the vacuum gripper. Returns true if successful.
+Stops the vacuum gripper. Can interrupt async commands. Returns true if successful.
+
+Get Async Status
+^^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    status = fr.VacuumGripper.status();
+
+Returns a struct with the current async command status and vacuum gripper state:
+
+- ``in_control_range``, ``part_detached``, ``part_present``, ``device_status``, 
+  ``actual_power``, ``vacuum``, ``time``: Vacuum gripper state fields
+- ``command_status``: One of 'idle', 'busy', 'success', 'failed', 'timeout', or 'stopped'
+- ``last_command``: Name of last/current command
+- ``error_message``: Error message if command failed
+
+Wait for Async Command
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    status = fr.VacuumGripper.wait(timeout);
+
+Blocks until the current async command completes or timeout is reached.
+
+Parameters:
+    - timeout: Maximum wait time in seconds (default: 30).
+
+Returns:
+    - Same struct as ``status()`` after command completes.
+
+Check if Busy
+^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    busy = fr.VacuumGripper.isBusy();
+
+Returns true if an async command is currently in progress.
+
+**Async Usage Examples**
+
+.. code-block:: matlab
+
+    % Example: Async vacuum with polling
+    fr.VacuumGripper.vacuum(0, 5000, 0, 'Async', true);
+    while fr.VacuumGripper.isBusy()
+        s = fr.VacuumGripper.status();
+        fprintf('Vacuum: %.1f, Part present: %d\n', s.vacuum, s.part_present);
+        pause(0.1);
+    end
+
+    % Example: Async drop off with wait
+    fr.VacuumGripper.dropOff(5000, 'Async', true);
+    result = fr.VacuumGripper.wait(10);  % Wait up to 10 seconds
+    if strcmp(result.command_status, 'success')
+        disp('Part released!');
+    end
+
+    % Example: Stop during async command
+    fr.VacuumGripper.vacuum(0, 5000, 0, 'Async', true, 'Timeout', 30);
+    pause(1);
+    fr.VacuumGripper.stop();  % Interrupt the vacuum
