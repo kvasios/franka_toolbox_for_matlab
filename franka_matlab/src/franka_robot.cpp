@@ -772,6 +772,169 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         return;
     }
 
+    // Vacuum Gripper Vacuum Async
+    if (!strcmp("vacuum_gripper_vacuum_async", cmd)) {
+        if (nlhs != 1 || nrhs < 5 || nrhs > 6)
+            mexErrMsgTxt("Vacuum Gripper Vacuum Async: One output and 4-5 inputs (handle, control_point, timeout, profile, [command_timeout]) expected.");
+        try {
+            uint8_t control_point = static_cast<uint8_t>(mxGetScalar(prhs[2]));
+            uint32_t timeout = static_cast<uint32_t>(mxGetScalar(prhs[3]));
+            uint8_t profile = static_cast<uint8_t>(mxGetScalar(prhs[4]));
+            double command_timeout = (nrhs >= 6) ? mxGetScalar(prhs[5]) : 15.0;
+            
+            bool started = franka_robot_instance->vacuumGripperVacuumAsync(
+                control_point, timeout, profile, command_timeout);
+            plhs[0] = mxCreateLogicalScalar(started);
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Vacuum gripper vacuum async failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Vacuum gripper vacuum async failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to start async vacuum gripper vacuum (unknown error)");
+        }
+        return;
+    }
+
+    // Vacuum Gripper Drop Off Async
+    if (!strcmp("vacuum_gripper_drop_off_async", cmd)) {
+        if (nlhs != 1 || nrhs < 3 || nrhs > 4)
+            mexErrMsgTxt("Vacuum Gripper Drop Off Async: One output and 2-3 inputs (handle, timeout, [command_timeout]) expected.");
+        try {
+            uint32_t timeout = static_cast<uint32_t>(mxGetScalar(prhs[2]));
+            double command_timeout = (nrhs >= 4) ? mxGetScalar(prhs[3]) : 15.0;
+            
+            bool started = franka_robot_instance->vacuumGripperDropOffAsync(timeout, command_timeout);
+            plhs[0] = mxCreateLogicalScalar(started);
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Vacuum gripper drop off async failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Vacuum gripper drop off async failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to start async vacuum gripper drop off (unknown error)");
+        }
+        return;
+    }
+
+    // Vacuum Gripper Async Status
+    if (!strcmp("vacuum_gripper_async_status", cmd)) {
+        if (nlhs != 1 || nrhs != 2)
+            mexErrMsgTxt("Vacuum Gripper Async Status: One output and one input (handle) expected.");
+        try {
+            auto status = franka_robot_instance->getVacuumGripperAsyncStatus();
+            plhs[0] = mxCreateStructMatrix(1, 1, 0, nullptr);
+            
+            // State fields
+            mxAddField(plhs[0], "in_control_range");
+            mxSetField(plhs[0], 0, "in_control_range", mxCreateLogicalScalar(status.getState().getInControlRange()));
+            
+            mxAddField(plhs[0], "part_detached");
+            mxSetField(plhs[0], 0, "part_detached", mxCreateLogicalScalar(status.getState().getPartDetached()));
+            
+            mxAddField(plhs[0], "part_present");
+            mxSetField(plhs[0], 0, "part_present", mxCreateLogicalScalar(status.getState().getPartPresent()));
+            
+            mxAddField(plhs[0], "device_status");
+            mxSetField(plhs[0], 0, "device_status", mxCreateDoubleScalar(status.getState().getDeviceStatus()));
+            
+            mxAddField(plhs[0], "actual_power");
+            mxSetField(plhs[0], 0, "actual_power", mxCreateDoubleScalar(status.getState().getActualPower()));
+            
+            mxAddField(plhs[0], "vacuum");
+            mxSetField(plhs[0], 0, "vacuum", mxCreateDoubleScalar(status.getState().getVacuum()));
+            
+            mxAddField(plhs[0], "time");
+            mxSetField(plhs[0], 0, "time", mxCreateDoubleScalar(status.getState().getTime()));
+            
+            // Command status as string
+            mxAddField(plhs[0], "command_status");
+            const char* status_str = "unknown";
+            switch (status.getCommandStatus()) {
+                case VacuumGripperCommandStatus::IDLE: status_str = "idle"; break;
+                case VacuumGripperCommandStatus::BUSY: status_str = "busy"; break;
+                case VacuumGripperCommandStatus::SUCCESS: status_str = "success"; break;
+                case VacuumGripperCommandStatus::FAILED: status_str = "failed"; break;
+                case VacuumGripperCommandStatus::TIMEOUT: status_str = "timeout"; break;
+                case VacuumGripperCommandStatus::STOPPED: status_str = "stopped"; break;
+            }
+            mxSetField(plhs[0], 0, "command_status", mxCreateString(status_str));
+            
+            mxAddField(plhs[0], "last_command");
+            mxSetField(plhs[0], 0, "last_command", mxCreateString(status.getLastCommand().cStr()));
+            
+            mxAddField(plhs[0], "error_message");
+            mxSetField(plhs[0], 0, "error_message", mxCreateString(status.getErrorMessage().cStr()));
+            
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Vacuum gripper async status failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Vacuum gripper async status failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to get vacuum gripper async status (unknown error)");
+        }
+        return;
+    }
+
+    // Vacuum Gripper Wait For Command
+    if (!strcmp("vacuum_gripper_wait", cmd)) {
+        if (nlhs != 1 || nrhs < 2 || nrhs > 3)
+            mexErrMsgTxt("Vacuum Gripper Wait: One output and 1-2 inputs (handle, [timeout]) expected.");
+        try {
+            double timeout = (nrhs >= 3) ? mxGetScalar(prhs[2]) : 30.0;
+            
+            auto status = franka_robot_instance->vacuumGripperWaitForCommand(timeout);
+            plhs[0] = mxCreateStructMatrix(1, 1, 0, nullptr);
+            
+            // State fields
+            mxAddField(plhs[0], "in_control_range");
+            mxSetField(plhs[0], 0, "in_control_range", mxCreateLogicalScalar(status.getState().getInControlRange()));
+            
+            mxAddField(plhs[0], "part_detached");
+            mxSetField(plhs[0], 0, "part_detached", mxCreateLogicalScalar(status.getState().getPartDetached()));
+            
+            mxAddField(plhs[0], "part_present");
+            mxSetField(plhs[0], 0, "part_present", mxCreateLogicalScalar(status.getState().getPartPresent()));
+            
+            mxAddField(plhs[0], "device_status");
+            mxSetField(plhs[0], 0, "device_status", mxCreateDoubleScalar(status.getState().getDeviceStatus()));
+            
+            mxAddField(plhs[0], "actual_power");
+            mxSetField(plhs[0], 0, "actual_power", mxCreateDoubleScalar(status.getState().getActualPower()));
+            
+            mxAddField(plhs[0], "vacuum");
+            mxSetField(plhs[0], 0, "vacuum", mxCreateDoubleScalar(status.getState().getVacuum()));
+            
+            mxAddField(plhs[0], "time");
+            mxSetField(plhs[0], 0, "time", mxCreateDoubleScalar(status.getState().getTime()));
+            
+            // Command status as string
+            mxAddField(plhs[0], "command_status");
+            const char* status_str = "unknown";
+            switch (status.getCommandStatus()) {
+                case VacuumGripperCommandStatus::IDLE: status_str = "idle"; break;
+                case VacuumGripperCommandStatus::BUSY: status_str = "busy"; break;
+                case VacuumGripperCommandStatus::SUCCESS: status_str = "success"; break;
+                case VacuumGripperCommandStatus::FAILED: status_str = "failed"; break;
+                case VacuumGripperCommandStatus::TIMEOUT: status_str = "timeout"; break;
+                case VacuumGripperCommandStatus::STOPPED: status_str = "stopped"; break;
+            }
+            mxSetField(plhs[0], 0, "command_status", mxCreateString(status_str));
+            
+            mxAddField(plhs[0], "last_command");
+            mxSetField(plhs[0], 0, "last_command", mxCreateString(status.getLastCommand().cStr()));
+            
+            mxAddField(plhs[0], "error_message");
+            mxSetField(plhs[0], 0, "error_message", mxCreateString(status.getErrorMessage().cStr()));
+            
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Vacuum gripper wait failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Vacuum gripper wait failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to wait for vacuum gripper command (unknown error)");
+        }
+        return;
+    }
+
     // Set Joint Impedance
     if (!strcmp("set_joint_impedance", cmd)) {
         if (nlhs != 1 || nrhs != 3)

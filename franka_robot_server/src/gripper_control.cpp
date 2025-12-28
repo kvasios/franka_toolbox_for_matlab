@@ -13,11 +13,12 @@
 #include <iostream>
 
 // ============================================================================
-// Destructor - cleanup worker thread
+// Destructor - cleanup worker threads
 // ============================================================================
 
 FrankaRobotRPCServiceImpl::~FrankaRobotRPCServiceImpl() {
     stopGripperWorkerThread();
+    stopVacuumGripperWorkerThread();
 }
 
 // ============================================================================

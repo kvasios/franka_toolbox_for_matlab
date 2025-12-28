@@ -77,7 +77,7 @@ public:
     kj::Promise<void> setLoadInertia(
         capnp::CallContext<SetLoadInertiaParams, SetLoadInertiaResults> context) override;
 
-    // Vacuum Gripper methods
+    // Vacuum Gripper methods (synchronous)
     kj::Promise<void> getVacuumGripperState(
         capnp::CallContext<GetVacuumGripperStateParams, GetVacuumGripperStateResults> context) override;
 
@@ -89,6 +89,19 @@ public:
 
     kj::Promise<void> vacuumGripperStop(
         capnp::CallContext<VacuumGripperStopParams, VacuumGripperStopResults> context) override;
+
+    // Async vacuum gripper methods
+    kj::Promise<void> vacuumGripperVacuumAsync(
+        capnp::CallContext<VacuumGripperVacuumAsyncParams, VacuumGripperVacuumAsyncResults> context) override;
+
+    kj::Promise<void> vacuumGripperDropOffAsync(
+        capnp::CallContext<VacuumGripperDropOffAsyncParams, VacuumGripperDropOffAsyncResults> context) override;
+
+    kj::Promise<void> getVacuumGripperAsyncStatus(
+        capnp::CallContext<GetVacuumGripperAsyncStatusParams, GetVacuumGripperAsyncStatusResults> context) override;
+
+    kj::Promise<void> vacuumGripperWaitForCommand(
+        capnp::CallContext<VacuumGripperWaitForCommandParams, VacuumGripperWaitForCommandResults> context) override;
 
     // Impedance control
     kj::Promise<void> setJointImpedance(
@@ -155,4 +168,34 @@ private:
     std::string gripper_last_command_name_;
     std::string gripper_error_message_;
     mutable std::mutex gripper_status_mutex_;  // Protects string members
+
+    // Async vacuum gripper command infrastructure
+    void startVacuumGripperWorkerThread();
+    void stopVacuumGripperWorkerThread();
+    void vacuumGripperWorkerLoop();
+    void fillVacuumGripperAsyncStatus(VacuumGripperAsyncStatus::Builder& status);
+    
+    std::thread vacuum_gripper_worker_thread_;
+    std::mutex vacuum_gripper_mutex_;
+    std::condition_variable vacuum_gripper_cv_;
+    std::condition_variable vacuum_gripper_done_cv_;  // Notified when command completes
+    std::atomic<bool> vacuum_gripper_shutdown_requested_{false};
+    
+    // Async vacuum gripper command state
+    enum class VacuumGripperCommand { None, Vacuum, DropOff };
+    VacuumGripperCommand pending_vacuum_gripper_command_{VacuumGripperCommand::None};
+    bool has_pending_vacuum_gripper_command_{false};
+    
+    // Vacuum gripper command parameters
+    uint8_t vacuum_gripper_cmd_control_point_{0};
+    uint32_t vacuum_gripper_cmd_timeout_{5000};
+    uint8_t vacuum_gripper_cmd_profile_{0};
+    double vacuum_gripper_cmd_command_timeout_{15.0};
+    
+    // Vacuum gripper command status (atomic for thread-safe reads)
+    std::atomic<VacuumGripperCommandStatus> vacuum_gripper_command_status_{VacuumGripperCommandStatus::IDLE};
+    std::atomic<bool> vacuum_gripper_stop_requested_{false};  // Set when stop() is called
+    std::string vacuum_gripper_last_command_name_;
+    std::string vacuum_gripper_error_message_;
+    mutable std::mutex vacuum_gripper_status_mutex_;  // Protects string members
 }; 

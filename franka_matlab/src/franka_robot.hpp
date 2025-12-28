@@ -343,6 +343,57 @@ public:
         }
     }
 
+    // Async vacuum gripper methods
+    bool vacuumGripperVacuumAsync(uint8_t control_point, uint32_t timeout, uint8_t profile,
+                                  double command_timeout = 15.0) {
+        auto request = rpcInterface.vacuumGripperVacuumAsyncRequest();
+        request.setControlPoint(control_point);
+        request.setTimeout(timeout);
+        request.setProfile(profile);
+        request.setCommandTimeout(command_timeout);
+
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStarted();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    bool vacuumGripperDropOffAsync(uint32_t timeout, double command_timeout = 15.0) {
+        auto request = rpcInterface.vacuumGripperDropOffAsyncRequest();
+        request.setTimeout(timeout);
+        request.setCommandTimeout(command_timeout);
+
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStarted();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    VacuumGripperAsyncStatus::Reader getVacuumGripperAsyncStatus() {
+        auto request = rpcInterface.getVacuumGripperAsyncStatusRequest();
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStatus();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    VacuumGripperAsyncStatus::Reader vacuumGripperWaitForCommand(double timeout = 30.0) {
+        auto request = rpcInterface.vacuumGripperWaitForCommandRequest();
+        request.setTimeout(timeout);
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStatus();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
     // Impedance control
     bool setJointImpedance(const std::array<double, 7>& K_theta) {
         auto request = rpcInterface.setJointImpedanceRequest();

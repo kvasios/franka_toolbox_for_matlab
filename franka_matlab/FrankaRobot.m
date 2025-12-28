@@ -135,7 +135,7 @@ classdef FrankaRobot < handle
                 franka_robot('automatic_error_recovery', obj.frankaRobotHandle, args{:}));
         end
 
-        function robot_state = robot_state(obj)
+        function robot_state = read_state(obj)
             obj.checkHandle();
             robot_state = obj.executeWithReconnect(@() ...
                 franka_robot('robot_state', obj.frankaRobotHandle));
@@ -196,7 +196,7 @@ classdef FrankaRobot < handle
             inertia = obj.Settings.load_inertia;
         end
 
-        function result = robot_homing(obj)
+        function result = homing(obj)
             obj.checkHandle();
             result = obj.joint_point_to_point_motion(obj.Settings.home_configuration, 0.1);
         end

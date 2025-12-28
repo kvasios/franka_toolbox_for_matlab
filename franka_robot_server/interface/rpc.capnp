@@ -83,6 +83,24 @@ struct VacuumGripperState {
     time @6 :Float64;  # Time since last update
 }
 
+# Status of async vacuum gripper commands
+enum VacuumGripperCommandStatus {
+    idle @0;        # No command running
+    busy @1;        # Command in progress
+    success @2;     # Last command succeeded
+    failed @3;      # Last command failed
+    timeout @4;     # Last command timed out
+    stopped @5;     # Last command was stopped
+}
+
+# Full vacuum gripper status including async command state
+struct VacuumGripperAsyncStatus {
+    state @0 :VacuumGripperState;           # Current vacuum gripper state
+    commandStatus @1 :VacuumGripperCommandStatus;  # Async command status
+    lastCommand @2 :Text;                   # Name of last/current command
+    errorMessage @3 :Text;                  # Error message if failed
+}
+
 struct JointTrajectoryPoint {
     positions @0 :List(Float64);  # 7 joint positions
 }
@@ -135,11 +153,18 @@ interface RPCService {
         loadInertia :List(Float64)    # Load inertia matrix in row-major format (9 elements)
     ) -> (success :Bool);
 
-    # Vacuum Gripper control
+    # Vacuum Gripper control (synchronous - blocking)
     getVacuumGripperState @13 () -> (state :VacuumGripperState);
     vacuumGripperVacuum @14 (controlPoint :UInt8, timeout :UInt32, profile :UInt8) -> (success :Bool);
     vacuumGripperDropOff @15 (timeout :UInt32) -> (success :Bool);
     vacuumGripperStop @16 () -> (success :Bool);
+
+    # Vacuum Gripper control (asynchronous - non-blocking)
+    # These return immediately after starting the command. Use getVacuumGripperAsyncStatus to poll.
+    vacuumGripperVacuumAsync @30 (controlPoint :UInt8, timeout :UInt32, profile :UInt8, commandTimeout :Float64) -> (started :Bool);
+    vacuumGripperDropOffAsync @31 (timeout :UInt32, commandTimeout :Float64) -> (started :Bool);
+    getVacuumGripperAsyncStatus @32 () -> (status :VacuumGripperAsyncStatus);
+    vacuumGripperWaitForCommand @33 (timeout :Float64) -> (status :VacuumGripperAsyncStatus);  # Block until command completes or timeout
 
     # Impedance control
     setJointImpedance @19 (kTheta :List(Float64)) -> (success :Bool);  # 7 elements
