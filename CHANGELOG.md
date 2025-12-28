@@ -8,6 +8,9 @@
    - FrankaRobot API: New methods for impedance control (`setJointImpedance`, `setCartesianImpedance`), guiding mode (`setGuidingMode`), frame transformations (`setEE`, `setK`), and motion control (`stop`).
    - FrankaRobot API: Improved server lifecycle handling.
    - FrankaRobot API: Support for multiple `FrankaRobot` instances.
+   - FrankaRobot API: Renamed `robot_state()` to `read_state()` and `robot_homing()` to `homing()`.
+   - FrankaGripper API: Added async support for `move()` and `grasp()` with `'Async', true` option. New methods: `status()`, `wait()`, `isBusy()` for non-blocking command execution and monitoring.
+   - FrankaVacuumGripper API: Added async support for `vacuum()` and `dropOff()` with `'Async', true` option. New methods: `status()`, `wait()`, `isBusy()` for non-blocking command execution and monitoring.
    - Simulink: Added `franka_gripper_sfunction` (finger gripper) with async command execution (homing/grasp/move/stop) and bus I/O (`FrankaGripperCommandBus`, `FrankaGripperStateBus`).
    - Simulink: Added `franka_vacuum_gripper_sfunction` (vacuum gripper) with async command execution (vacuum/drop_off/stop) and bus I/O (`FrankaVacuumGripperCommandBus`, `FrankaVacuumGripperStateBus`).
    - Simulink: Added MATLAB bus scripts and default command helpers for both grippers; `franka_setup_bus` now registers all gripper buses.
