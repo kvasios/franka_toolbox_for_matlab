@@ -332,6 +332,196 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         return;
     }
 
+    // Joint Point-to-Point Motion Async
+    if (!strcmp("joint_point_to_point_motion_async", cmd)) {
+        if (nlhs != 1 || nrhs < 4 || nrhs > 5)
+            mexErrMsgTxt("Joint Point-to-Point Motion Async: One output and 3-4 inputs (handle, target_config, speed_factor, [timeout]) expected.");
+        
+        if (!mxIsDouble(prhs[2]) || mxGetNumberOfElements(prhs[2]) != 7)
+            mexErrMsgTxt("Target configuration must be a 7-element double array.");
+        
+        if (!mxIsDouble(prhs[3]) || mxGetNumberOfElements(prhs[3]) != 1)
+            mexErrMsgTxt("Speed factor must be a scalar double.");
+
+        try {
+            std::array<double, 7> target_config;
+            double* target_ptr = mxGetPr(prhs[2]);
+            for (size_t i = 0; i < 7; i++) {
+                target_config[i] = target_ptr[i];
+            }
+            double speed_factor = mxGetScalar(prhs[3]);
+            double timeout = (nrhs >= 5) ? mxGetScalar(prhs[4]) : 60.0;
+            
+            bool started = franka_robot_instance->jointPointToPointMotionAsync(target_config, speed_factor, timeout);
+            plhs[0] = mxCreateLogicalScalar(started);
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Joint point-to-point motion async failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Joint point-to-point motion async failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to start async joint point-to-point motion (unknown error)");
+        }
+        return;
+    }
+
+    // Joint Trajectory Motion Async
+    if (!strcmp("joint_trajectory_motion_async", cmd)) {
+        if (nlhs != 1 || nrhs < 3 || nrhs > 4)
+            mexErrMsgTxt("Joint Trajectory Motion Async: One output and 2-3 inputs (handle, trajectory, [timeout]) expected.");
+        
+        if (!mxIsDouble(prhs[2]))
+            mexErrMsgTxt("Trajectory must be a 7xN double array.");
+
+        try {
+            size_t num_points = mxGetN(prhs[2]);
+            if (mxGetM(prhs[2]) != 7)
+                mexErrMsgTxt("Trajectory must be a 7xN array.");
+
+            std::vector<std::array<double, 7>> positions(num_points);
+            double* pos_ptr = mxGetPr(prhs[2]);
+
+            for (size_t i = 0; i < num_points; i++) {
+                for (size_t j = 0; j < 7; j++) {
+                    positions[i][j] = pos_ptr[i*7 + j];
+                }
+            }
+            
+            double timeout = (nrhs >= 4) ? mxGetScalar(prhs[3]) : 0.0;
+
+            bool started = franka_robot_instance->jointTrajectoryMotionAsync(positions, timeout);
+            plhs[0] = mxCreateLogicalScalar(started);
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Joint trajectory motion async failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Joint trajectory motion async failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to start async joint trajectory motion (unknown error)");
+        }
+        return;
+    }
+
+    // Motion Async Status
+    if (!strcmp("motion_async_status", cmd)) {
+        if (nlhs != 1 || nrhs != 2)
+            mexErrMsgTxt("Motion Async Status: One output and one input (handle) expected.");
+        try {
+            auto status = franka_robot_instance->getMotionAsyncStatus();
+            plhs[0] = mxCreateStructMatrix(1, 1, 0, nullptr);
+            
+            // Joint positions
+            mxAddField(plhs[0], "q");
+            mxArray* q_arr = mxCreateDoubleMatrix(1, 7, mxREAL);
+            double* q_ptr = mxGetPr(q_arr);
+            auto q = status.getQ();
+            for (size_t i = 0; i < 7; i++) {
+                q_ptr[i] = q[i];
+            }
+            mxSetField(plhs[0], 0, "q", q_arr);
+            
+            // Joint velocities
+            mxAddField(plhs[0], "dq");
+            mxArray* dq_arr = mxCreateDoubleMatrix(1, 7, mxREAL);
+            double* dq_ptr = mxGetPr(dq_arr);
+            auto dq = status.getDq();
+            for (size_t i = 0; i < 7; i++) {
+                dq_ptr[i] = dq[i];
+            }
+            mxSetField(plhs[0], 0, "dq", dq_arr);
+            
+            // Command status as string
+            mxAddField(plhs[0], "command_status");
+            const char* status_str = "unknown";
+            switch (status.getCommandStatus()) {
+                case MotionCommandStatus::IDLE: status_str = "idle"; break;
+                case MotionCommandStatus::BUSY: status_str = "busy"; break;
+                case MotionCommandStatus::SUCCESS: status_str = "success"; break;
+                case MotionCommandStatus::FAILED: status_str = "failed"; break;
+                case MotionCommandStatus::TIMEOUT: status_str = "timeout"; break;
+                case MotionCommandStatus::STOPPED: status_str = "stopped"; break;
+            }
+            mxSetField(plhs[0], 0, "command_status", mxCreateString(status_str));
+            
+            mxAddField(plhs[0], "last_command");
+            mxSetField(plhs[0], 0, "last_command", mxCreateString(status.getLastCommand().cStr()));
+            
+            mxAddField(plhs[0], "error_message");
+            mxSetField(plhs[0], 0, "error_message", mxCreateString(status.getErrorMessage().cStr()));
+            
+            mxAddField(plhs[0], "progress");
+            mxSetField(plhs[0], 0, "progress", mxCreateDoubleScalar(status.getProgress()));
+            
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Motion async status failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Motion async status failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to get motion async status (unknown error)");
+        }
+        return;
+    }
+
+    // Motion Wait For Command
+    if (!strcmp("motion_wait", cmd)) {
+        if (nlhs != 1 || nrhs < 2 || nrhs > 3)
+            mexErrMsgTxt("Motion Wait: One output and 1-2 inputs (handle, [timeout]) expected.");
+        try {
+            double timeout = (nrhs >= 3) ? mxGetScalar(prhs[2]) : 120.0;
+            
+            auto status = franka_robot_instance->motionWaitForCommand(timeout);
+            plhs[0] = mxCreateStructMatrix(1, 1, 0, nullptr);
+            
+            // Joint positions
+            mxAddField(plhs[0], "q");
+            mxArray* q_arr = mxCreateDoubleMatrix(1, 7, mxREAL);
+            double* q_ptr = mxGetPr(q_arr);
+            auto q = status.getQ();
+            for (size_t i = 0; i < 7; i++) {
+                q_ptr[i] = q[i];
+            }
+            mxSetField(plhs[0], 0, "q", q_arr);
+            
+            // Joint velocities
+            mxAddField(plhs[0], "dq");
+            mxArray* dq_arr = mxCreateDoubleMatrix(1, 7, mxREAL);
+            double* dq_ptr = mxGetPr(dq_arr);
+            auto dq = status.getDq();
+            for (size_t i = 0; i < 7; i++) {
+                dq_ptr[i] = dq[i];
+            }
+            mxSetField(plhs[0], 0, "dq", dq_arr);
+            
+            // Command status as string
+            mxAddField(plhs[0], "command_status");
+            const char* status_str = "unknown";
+            switch (status.getCommandStatus()) {
+                case MotionCommandStatus::IDLE: status_str = "idle"; break;
+                case MotionCommandStatus::BUSY: status_str = "busy"; break;
+                case MotionCommandStatus::SUCCESS: status_str = "success"; break;
+                case MotionCommandStatus::FAILED: status_str = "failed"; break;
+                case MotionCommandStatus::TIMEOUT: status_str = "timeout"; break;
+                case MotionCommandStatus::STOPPED: status_str = "stopped"; break;
+            }
+            mxSetField(plhs[0], 0, "command_status", mxCreateString(status_str));
+            
+            mxAddField(plhs[0], "last_command");
+            mxSetField(plhs[0], 0, "last_command", mxCreateString(status.getLastCommand().cStr()));
+            
+            mxAddField(plhs[0], "error_message");
+            mxSetField(plhs[0], 0, "error_message", mxCreateString(status.getErrorMessage().cStr()));
+            
+            mxAddField(plhs[0], "progress");
+            mxSetField(plhs[0], 0, "progress", mxCreateDoubleScalar(status.getProgress()));
+            
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Motion wait failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Motion wait failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to wait for motion command (unknown error)");
+        }
+        return;
+    }
+
     // Get Gripper State
     if (!strcmp("gripper_state", cmd)) {
         if (nlhs != 1 || nrhs != 2)

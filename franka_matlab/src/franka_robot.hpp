@@ -116,6 +116,68 @@ public:
         }
     }
 
+    // Async motion methods
+    bool jointPointToPointMotionAsync(const std::array<double, 7>& target_config, 
+                                      double speed_factor, double timeout = 60.0) {
+        auto request = rpcInterface.jointPointToPointMotionAsyncRequest();
+        auto target = request.initTargetConfiguration(7);
+        for (size_t i = 0; i < 7; i++) {
+            target.set(i, target_config[i]);
+        }
+        request.setSpeedFactor(speed_factor);
+        request.setTimeout(timeout);
+
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStarted();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    bool jointTrajectoryMotionAsync(const std::vector<std::array<double, 7>>& positions,
+                                    double timeout = 0.0) {
+        auto request = rpcInterface.jointTrajectoryMotionAsyncRequest();
+        auto trajectory = request.initTrajectory(positions.size());
+
+        for (size_t i = 0; i < positions.size(); i++) {
+            auto point = trajectory[i];
+            auto pos = point.initPositions(7);
+            for (size_t j = 0; j < 7; j++) {
+                pos.set(j, positions[i][j]);
+            }
+        }
+        request.setTimeout(timeout);
+
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStarted();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    MotionAsyncStatus::Reader getMotionAsyncStatus() {
+        auto request = rpcInterface.getMotionAsyncStatusRequest();
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStatus();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    MotionAsyncStatus::Reader motionWaitForCommand(double timeout = 120.0) {
+        auto request = rpcInterface.motionWaitForCommandRequest();
+        request.setTimeout(timeout);
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getStatus();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
     GripperState::Reader getGripperState() {
         auto request = rpcInterface.getGripperStateRequest();
         try {

@@ -1,6 +1,22 @@
 classdef FrankaRobot < handle
     %FRANKAROBOT High-level interface to Franka Emika robots
     %
+    %   The robot provides both synchronous and asynchronous motion execution:
+    %
+    %   Synchronous (blocking, default):
+    %       robot.joint_point_to_point_motion(q_target, 0.5)  % Blocks until complete
+    %       robot.joint_trajectory_motion(trajectory)          % Blocks until complete
+    %
+    %   Asynchronous (non-blocking):
+    %       robot.joint_point_to_point_motion(q_target, 0.5, 'Async', true)
+    %       robot.joint_trajectory_motion(trajectory, 'Async', true)
+    %
+    %   Async control methods:
+    %       motion_status()  - Get current motion command status
+    %       motion_wait()    - Wait for async motion to complete
+    %       motion_isBusy()  - Check if motion is in progress
+    %       stop()           - Stop current motion
+    %
     %   Example (single robot):
     %       robot = FrankaRobot('RobotIP', '172.16.0.2');
     %
@@ -147,22 +163,123 @@ classdef FrankaRobot < handle
                 franka_robot('joint_poses', obj.frankaRobotHandle));
         end
         
-        function result = joint_point_to_point_motion(obj, joints_target_configuration, speed_factor)
+        function result = joint_point_to_point_motion(obj, joints_target_configuration, speed_factor, varargin)
+            % Move robot to target joint configuration
+            %
+            % Syntax:
+            %   result = robot.joint_point_to_point_motion(target, speed_factor)
+            %   result = robot.joint_point_to_point_motion(target, speed_factor, 'Async', true)
+            %   result = robot.joint_point_to_point_motion(target, speed_factor, 'Async', true, 'Timeout', 60)
+            %
+            % Inputs:
+            %   joints_target_configuration - 7-element target joint positions
+            %   speed_factor - Speed factor in (0, 1] (default: 0.5)
+            %
+            % Name-Value Arguments:
+            %   'Async'   - If true, return immediately (default: false)
+            %   'Timeout' - Max time for async command in seconds (default: 60)
+            %
+            % Returns:
+            %   result - If sync: true if motion succeeded
+            %            If async: true if command was started
             obj.checkHandle();
-            if nargin < 3, speed_factor = 0.5; end
-            result = obj.executeWithReconnect(@() ...
-                franka_robot('joint_point_to_point_motion', obj.frankaRobotHandle, ...
-                    joints_target_configuration, speed_factor));
+            if nargin < 3 || isempty(speed_factor), speed_factor = 0.5; end
+            
+            % Handle name-value pairs starting at position 3
+            if nargin >= 4 && (ischar(speed_factor) || isstring(speed_factor))
+                varargin = [{speed_factor}, varargin];
+                speed_factor = 0.5;
+            end
+            
+            p = inputParser;
+            addParameter(p, 'Async', false, @islogical);
+            addParameter(p, 'Timeout', 60.0, @isnumeric);
+            parse(p, varargin{:});
+            
+            if p.Results.Async
+                result = obj.executeWithReconnect(@() ...
+                    franka_robot('joint_point_to_point_motion_async', obj.frankaRobotHandle, ...
+                        joints_target_configuration, speed_factor, p.Results.Timeout));
+            else
+                result = obj.executeWithReconnect(@() ...
+                    franka_robot('joint_point_to_point_motion', obj.frankaRobotHandle, ...
+                        joints_target_configuration, speed_factor));
+            end
         end
 
-        function result = joint_trajectory_motion(obj, positions)
+        function result = joint_trajectory_motion(obj, positions, varargin)
+            % Execute joint trajectory motion
+            %
+            % Syntax:
+            %   result = robot.joint_trajectory_motion(positions)
+            %   result = robot.joint_trajectory_motion(positions, 'Async', true)
+            %   result = robot.joint_trajectory_motion(positions, 'Async', true, 'Timeout', 120)
+            %
+            % Inputs:
+            %   positions - 7xN array of joint positions (1ms per column)
+            %
+            % Name-Value Arguments:
+            %   'Async'   - If true, return immediately (default: false)
+            %   'Timeout' - Max time for async command in seconds (default: auto)
+            %
+            % Returns:
+            %   result - If sync: true if motion succeeded
+            %            If async: true if command was started
             obj.checkHandle();
-            [m, ~] = size(positions);
+            [m, n] = size(positions);
             if m ~= 7
                 error('Positions must be a 7xN array');
             end
-            result = obj.executeWithReconnect(@() ...
-                franka_robot('joint_trajectory_motion', obj.frankaRobotHandle, positions));
+            
+            p = inputParser;
+            addParameter(p, 'Async', false, @islogical);
+            addParameter(p, 'Timeout', 0.0, @isnumeric);  % 0 = auto-calculate
+            parse(p, varargin{:});
+            
+            if p.Results.Async
+                result = obj.executeWithReconnect(@() ...
+                    franka_robot('joint_trajectory_motion_async', obj.frankaRobotHandle, ...
+                        positions, p.Results.Timeout));
+            else
+                result = obj.executeWithReconnect(@() ...
+                    franka_robot('joint_trajectory_motion', obj.frankaRobotHandle, positions));
+            end
+        end
+        
+        function s = motion_status(obj)
+            % Get the current motion command status
+            % Returns:
+            %   s - Struct with fields:
+            %       q              - Current joint positions (1x7)
+            %       dq             - Current joint velocities (1x7)
+            %       command_status - 'idle', 'busy', 'success', 'failed',
+            %                        'timeout', or 'stopped'
+            %       last_command   - Name of last/current command
+            %       error_message  - Error message if failed
+            %       progress       - Motion progress 0.0-1.0
+            obj.checkHandle();
+            s = obj.executeWithReconnect(@() ...
+                franka_robot('motion_async_status', obj.frankaRobotHandle));
+        end
+        
+        function s = motion_wait(obj, timeout)
+            % Wait for the current async motion to complete
+            % Inputs:
+            %   timeout - Maximum wait time in seconds (default: 120)
+            % Returns:
+            %   s - Same as motion_status() after command completes
+            obj.checkHandle();
+            if nargin < 2, timeout = 120.0; end
+            s = obj.executeWithReconnect(@() ...
+                franka_robot('motion_wait', obj.frankaRobotHandle, timeout));
+        end
+        
+        function busy = motion_isBusy(obj)
+            % Check if a motion command is currently in progress
+            % Returns:
+            %   busy - True if a motion is running
+            s = obj.motion_status();
+            busy = strcmp(s.command_status, 'busy');
         end
 
         function result = setCollisionThresholds(obj, thresholds)

@@ -9,6 +9,7 @@
    - FrankaRobot API: Improved server lifecycle handling.
    - FrankaRobot API: Support for multiple `FrankaRobot` instances.
    - FrankaRobot API: Renamed `robot_state()` to `state()` and `robot_homing()` to `homing()`.
+   - FrankaRobot API: Added async support for `joint_point_to_point_motion()` and `joint_trajectory_motion()` with `'Async', true` option. New methods: `motion_status()`, `motion_wait()`, `motion_isBusy()` for non-blocking motion execution and monitoring.
    - FrankaGripper API: Added async support for `move()` and `grasp()` with `'Async', true` option. New methods: `status()`, `wait()`, `isBusy()` for non-blocking command execution and monitoring.
    - FrankaVacuumGripper API: Added async support for `vacuum()` and `dropOff()` with `'Async', true` option. New methods: `status()`, `wait()`, `isBusy()` for non-blocking command execution and monitoring.
    - Simulink: Added `franka_gripper_sfunction` (finger gripper) with async command execution (homing/grasp/move/stop) and bus I/O (`FrankaGripperCommandBus`, `FrankaGripperStateBus`).

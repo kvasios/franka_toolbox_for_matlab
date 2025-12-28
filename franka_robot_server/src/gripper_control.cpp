@@ -19,6 +19,7 @@
 FrankaRobotRPCServiceImpl::~FrankaRobotRPCServiceImpl() {
     stopGripperWorkerThread();
     stopVacuumGripperWorkerThread();
+    stopMotionWorkerThread();
 }
 
 // ============================================================================

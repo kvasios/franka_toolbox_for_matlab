@@ -56,6 +56,7 @@ set(SOURCES
     src/get_robot_state.cpp
     src/gripper_control.cpp
     src/vacuum_gripper_control.cpp
+    src/motion_async.cpp
     src/get_joint_poses.cpp
     src/joint_point_to_point_motion.cpp
     src/joint_trajectory_motion.cpp

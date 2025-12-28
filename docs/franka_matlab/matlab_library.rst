@@ -93,7 +93,12 @@ Joint Point to Point Motion
 
 .. code-block:: matlab
 
+    % Synchronous (blocking)
     fr.joint_point_to_point_motion(joints_target_configuration, speed_factor);
+
+    % Asynchronous (non-blocking)
+    fr.joint_point_to_point_motion(joints_target_configuration, speed_factor, 'Async', true);
+    fr.joint_point_to_point_motion(joints_target_configuration, speed_factor, 'Async', true, 'Timeout', 60);
 
 Moves the robot into a desired joint configuration.
 
@@ -101,21 +106,108 @@ Parameters:
     - joints_target_configuration: 7-element double array with target configuration
     - speed_factor: Scalar between 0 and 1 (default: 0.5)
 
+Name-Value Arguments:
+    - 'Async': If true, return immediately without waiting (default: false).
+    - 'Timeout': Maximum time for async command in seconds (default: 60).
+
+Returns:
+    - Sync mode: true if motion was successful, false otherwise.
+    - Async mode: true if command was started successfully.
+
 Joint Trajectory Motion
 ^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: matlab
 
+    % Synchronous (blocking)
     fr.joint_trajectory_motion(positions);
+
+    % Asynchronous (non-blocking)
+    fr.joint_trajectory_motion(positions, 'Async', true);
+    fr.joint_trajectory_motion(positions, 'Async', true, 'Timeout', 120);
 
 Moves the robot based on the given desired joint trajectory.
 
 Parameters:
-    - positions: 7xN double array with desired joint trajectory
+    - positions: 7xN double array with desired joint trajectory (1ms per column)
+
+Name-Value Arguments:
+    - 'Async': If true, return immediately without waiting (default: false).
+    - 'Timeout': Maximum time for async command in seconds (default: auto-calculated).
+
+Returns:
+    - Sync mode: true if motion was successful, false otherwise.
+    - Async mode: true if command was started successfully.
 
 .. warning::
     Make sure that the current configuration of the robot matches the initial trajectory element `q(1:7,1)` that is passed in the function! Additionally make sure that
     the given trajectory is sufficiently smooth and continuous.
+
+Get Motion Status
+^^^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    status = fr.motion_status();
+
+Returns a struct with the current motion command status:
+
+- ``q``: Current joint positions (1x7)
+- ``dq``: Current joint velocities (1x7)
+- ``command_status``: One of 'idle', 'busy', 'success', 'failed', 'timeout', or 'stopped'
+- ``last_command``: Name of last/current command
+- ``error_message``: Error message if failed
+- ``progress``: Motion progress 0.0-1.0
+
+Wait for Motion
+^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    status = fr.motion_wait(timeout);
+
+Blocks until the current async motion completes or timeout is reached.
+
+Parameters:
+    - timeout: Maximum wait time in seconds (default: 120).
+
+Returns:
+    - Same struct as ``motion_status()`` after command completes.
+
+Check if Motion Busy
+^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    busy = fr.motion_isBusy();
+
+Returns true if a motion command is currently in progress.
+
+**Async Motion Examples**
+
+.. code-block:: matlab
+
+    % Example: Async point-to-point motion with polling
+    q_target = [0, -pi/4, 0, -3*pi/4, 0, pi/2, pi/4];
+    fr.joint_point_to_point_motion(q_target, 0.3, 'Async', true);
+    while fr.motion_isBusy()
+        s = fr.motion_status();
+        fprintf('Progress: %.1f%%, q1=%.3f\n', s.progress*100, s.q(1));
+        pause(0.1);
+    end
+
+    % Example: Async trajectory motion with wait
+    trajectory = generate_trajectory();  % 7xN array
+    fr.joint_trajectory_motion(trajectory, 'Async', true);
+    result = fr.motion_wait(60);  % Wait up to 60 seconds
+    if strcmp(result.command_status, 'success')
+        disp('Trajectory completed!');
+    end
+
+    % Example: Stop during async motion
+    fr.joint_point_to_point_motion(q_target, 0.1, 'Async', true);
+    pause(1);
+    fr.stop();  % Interrupt the motion
 
 Collision Thresholds
 ^^^^^^^^^^^^^^^^^^^^

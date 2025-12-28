@@ -43,6 +43,19 @@ public:
     kj::Promise<void> jointTrajectoryMotion(
         capnp::CallContext<JointTrajectoryMotionParams, JointTrajectoryMotionResults> context) override;
 
+    // Async motion methods
+    kj::Promise<void> jointPointToPointMotionAsync(
+        capnp::CallContext<JointPointToPointMotionAsyncParams, JointPointToPointMotionAsyncResults> context) override;
+
+    kj::Promise<void> jointTrajectoryMotionAsync(
+        capnp::CallContext<JointTrajectoryMotionAsyncParams, JointTrajectoryMotionAsyncResults> context) override;
+
+    kj::Promise<void> getMotionAsyncStatus(
+        capnp::CallContext<GetMotionAsyncStatusParams, GetMotionAsyncStatusResults> context) override;
+
+    kj::Promise<void> motionWaitForCommand(
+        capnp::CallContext<MotionWaitForCommandParams, MotionWaitForCommandResults> context) override;
+
     kj::Promise<void> getGripperState(
         capnp::CallContext<GetGripperStateParams, GetGripperStateResults> context) override;
 
@@ -198,4 +211,35 @@ private:
     std::string vacuum_gripper_last_command_name_;
     std::string vacuum_gripper_error_message_;
     mutable std::mutex vacuum_gripper_status_mutex_;  // Protects string members
+
+    // Async motion command infrastructure
+    void startMotionWorkerThread();
+    void stopMotionWorkerThread();
+    void motionWorkerLoop();
+    void fillMotionAsyncStatus(MotionAsyncStatus::Builder& status);
+    
+    std::thread motion_worker_thread_;
+    std::mutex motion_mutex_;
+    std::condition_variable motion_cv_;
+    std::condition_variable motion_done_cv_;  // Notified when command completes
+    std::atomic<bool> motion_shutdown_requested_{false};
+    
+    // Async motion command state
+    enum class MotionCommand { None, PointToPoint, Trajectory };
+    MotionCommand pending_motion_command_{MotionCommand::None};
+    bool has_pending_motion_command_{false};
+    
+    // Motion command parameters
+    std::array<double, 7> motion_cmd_target_config_{};
+    double motion_cmd_speed_factor_{0.5};
+    std::vector<std::array<double, 7>> motion_cmd_trajectory_;
+    double motion_cmd_timeout_{60.0};
+    
+    // Motion command status (atomic for thread-safe reads)
+    std::atomic<MotionCommandStatus> motion_command_status_{MotionCommandStatus::IDLE};
+    std::atomic<bool> motion_stop_requested_{false};  // Set when stop() is called
+    std::atomic<double> motion_progress_{0.0};  // Motion progress 0.0-1.0
+    std::string motion_last_command_name_;
+    std::string motion_error_message_;
+    mutable std::mutex motion_status_mutex_;  // Protects string members
 }; 

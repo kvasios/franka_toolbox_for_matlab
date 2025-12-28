@@ -105,6 +105,26 @@ struct JointTrajectoryPoint {
     positions @0 :List(Float64);  # 7 joint positions
 }
 
+# Status of async motion commands
+enum MotionCommandStatus {
+    idle @0;        # No command running
+    busy @1;        # Command in progress
+    success @2;     # Last command succeeded
+    failed @3;      # Last command failed
+    timeout @4;     # Last command timed out
+    stopped @5;     # Last command was stopped
+}
+
+# Full motion status including async command state
+struct MotionAsyncStatus {
+    q @0 :List(Float64);                    # Current joint positions (7 elements)
+    dq @1 :List(Float64);                   # Current joint velocities (7 elements)
+    commandStatus @2 :MotionCommandStatus;  # Async command status
+    lastCommand @3 :Text;                   # Name of last/current command
+    errorMessage @4 :Text;                  # Error message if failed
+    progress @5 :Float64;                   # Motion progress 0.0-1.0 (for trajectory)
+}
+
 interface RPCService {
     # Robot initialization and recovery
     initializeRobot @0 (ipAddress :Text) -> (result :Void);
@@ -116,9 +136,16 @@ interface RPCService {
     getRobotState @2 () -> (state :RobotState);
     getJointPoses @3 () -> (poses :List(List(Float64)));  # Each inner list should have 16 elements (10 4x4 matrices in row-major format)
     
-    # Joint motion control
+    # Joint motion control (synchronous - blocking)
     jointPointToPointMotion @4 (targetConfiguration :List(Float64), speedFactor :Float64) -> (result :Bool);
     jointTrajectoryMotion @5 (trajectory :List(JointTrajectoryPoint)) -> (result :Bool);
+
+    # Joint motion control (asynchronous - non-blocking)
+    # These return immediately after starting the command. Use getMotionAsyncStatus to poll.
+    jointPointToPointMotionAsync @34 (targetConfiguration :List(Float64), speedFactor :Float64, timeout :Float64) -> (started :Bool);
+    jointTrajectoryMotionAsync @35 (trajectory :List(JointTrajectoryPoint), timeout :Float64) -> (started :Bool);
+    getMotionAsyncStatus @36 () -> (status :MotionAsyncStatus);
+    motionWaitForCommand @37 (timeout :Float64) -> (status :MotionAsyncStatus);  # Block until command completes or timeout
     
     # Gripper control (synchronous - blocking)
     getGripperState @6 () -> (state :GripperState);
