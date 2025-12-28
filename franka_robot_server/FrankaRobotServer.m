@@ -35,10 +35,21 @@ classdef FrankaRobotServer < handle
         end
         
         function start(obj)
+            % Always set log file path (needed even when attaching to an already-running server).
+            % If logFile is empty, getOutput() in remote mode would call:
+            %   ssh("cat  2>/dev/null")
+            % which blocks forever because `cat` reads from stdin.
+            obj.logFile = obj.logPath();
+
             % Check if already running
             if obj.isRunning()
                 warning('FrankaRobotServer:AlreadyRunning', ...
-                    'Server already running on port %s', obj.ServerPort);
+                    'Server already running on port %s (attaching)', obj.ServerPort);
+
+                % In local mode, try to attach to existing log file for getOutput().
+                if ~obj.isRemote && isempty(obj.outputFid) && ~isempty(obj.logFile) && exist(obj.logFile, 'file')
+                    obj.outputFid = fopen(obj.logFile, 'r');
+                end
                 return;
             end
             
@@ -123,6 +134,11 @@ classdef FrankaRobotServer < handle
         function lines = getOutput(obj)
             lines = {};
             if obj.isRemote
+                % If the server was already running, start() returns early. Ensure we never
+                % run `cat` without a file, which would block waiting on stdin.
+                if isempty(obj.logFile)
+                    return;
+                end
                 [~, out] = obj.ssh(['cat ' obj.logFile ' 2>/dev/null']);
                 if ~isempty(out)
                     lines = strsplit(out, '\n');

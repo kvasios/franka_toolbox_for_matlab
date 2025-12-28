@@ -44,6 +44,11 @@ classdef FrankaRobot < handle
             %   'ServerIP'   - Remote server IP (triggers SSH mode)
             %   'Username'   - SSH username (default: 'franka')
             %   'SSHPort'    - SSH port (default: '22')
+            %
+            % Notes:
+            % - If a server is already running on the requested ServerPort, this constructor
+            %   will attach to it instead of starting a new process (and will not block on
+            %   remote log reading). To run multiple robots, use different ServerPort values.
             
             p = inputParser;
             addParameter(p, 'RobotIP', '', @(x) ischar(x) || isstring(x));
@@ -76,6 +81,7 @@ classdef FrankaRobot < handle
             end
 
             try
+                wasAlreadyRunning = obj.Server.isRunning();
                 obj.Server.start();
             catch ME
                 error('FrankaRobot:InitError', 'Failed to start server: %s', ME.message);
@@ -84,10 +90,24 @@ classdef FrankaRobot < handle
             obj.frankaRobotHandle = franka_robot('new', obj.Server.getServerIp(), obj.Server.getServerPort());
             
             try
+                % If we attached to an already-running server, validate connectivity early.
+                if wasAlreadyRunning
+                    try
+                        obj.ping();
+                    catch MEping
+                        error('FrankaRobot:InitError', ...
+                            'Server is running on port %s but RPC ping failed. Check ServerIP/ServerPort. Details: %s', ...
+                            obj.Server.getServerPort(), MEping.message);
+                    end
+                end
                 obj.initialize();
-                % Check server logs for initialization errors (server may not throw)
-                pause(0.3);  % Brief pause to allow server to log any errors
-                obj.checkInitializationErrors();
+                % Check server logs for initialization errors (server may not throw).
+                % If we attached to an already-running server, the log may include stale
+                % lines from previous runs (and in remote mode could be expensive to read).
+                if ~wasAlreadyRunning
+                    pause(0.3);  % Brief pause to allow server to log any errors
+                    obj.checkInitializationErrors();
+                end
             catch ME
                 obj.Server.stop();
                 franka_robot('delete', obj.frankaRobotHandle);
