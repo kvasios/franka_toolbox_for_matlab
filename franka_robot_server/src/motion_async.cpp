@@ -108,8 +108,19 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                     
                     MotionGenerator motion_generator(speed_factor, target_config);
                     
+                    // Capture initial position and calculate total distance for progress tracking
+                    auto initial_state = robot_->readOnce();
+                    std::array<double, 7> q_start = initial_state.q;
+                    double total_distance = 0.0;
+                    for (size_t i = 0; i < 7; ++i) {
+                        double diff = target_config[i] - q_start[i];
+                        total_distance += diff * diff;
+                    }
+                    total_distance = std::sqrt(total_distance);
+                    
                     // Wrap the motion generator to track progress and check for stop
-                    auto control_callback = [this, &motion_generator, &start_time, timeout](
+                    auto control_callback = [this, &motion_generator, &start_time, timeout,
+                                            &q_start, &target_config, total_distance](
                         const franka::RobotState& state,
                         franka::Duration period) -> franka::JointPositions {
                         
@@ -123,6 +134,18 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                             std::chrono::steady_clock::now() - start_time).count();
                         if (timeout > 0 && elapsed > timeout) {
                             throw franka::CommandException("Motion timed out");
+                        }
+                        
+                        // Calculate progress based on distance traveled
+                        if (total_distance > 1e-6) {
+                            double traveled = 0.0;
+                            for (size_t i = 0; i < 7; ++i) {
+                                double diff = state.q[i] - q_start[i];
+                                traveled += diff * diff;
+                            }
+                            traveled = std::sqrt(traveled);
+                            double progress = std::min(1.0, traveled / total_distance);
+                            motion_progress_.store(progress);
                         }
                         
                         return motion_generator(state, period);
@@ -167,8 +190,12 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                         time_ms += period.toMSec();
                         size_t current_point = std::min(static_cast<size_t>(time_ms), trajectory.size() - 1);
                         
-                        // Update progress
-                        motion_progress_.store(static_cast<double>(current_point) / static_cast<double>(total_points - 1));
+                        // Update progress (avoid division by zero for single-point trajectories)
+                        if (total_points > 1) {
+                            motion_progress_.store(static_cast<double>(current_point) / static_cast<double>(total_points - 1));
+                        } else {
+                            motion_progress_.store(1.0);
+                        }
                         
                         franka::JointPositions output(trajectory[current_point]);
 
