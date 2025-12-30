@@ -242,4 +242,11 @@ private:
     std::string motion_last_command_name_;
     std::string motion_error_message_;
     mutable std::mutex motion_status_mutex_;  // Protects string members
+    
+    // Cached robot state during motion (updated in control callback at 1kHz)
+    // Used by getRobotState/getJointPoses/fillMotionAsyncStatus since libfranka
+    // doesn't allow readOnce() or read() during active control loop
+    franka::RobotState cached_robot_state_{};
+    std::atomic<bool> has_cached_robot_state_{false};
+    mutable std::mutex cached_robot_state_mutex_;
 }; 

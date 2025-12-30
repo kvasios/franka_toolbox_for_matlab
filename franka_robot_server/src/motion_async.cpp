@@ -124,6 +124,14 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                         const franka::RobotState& state,
                         franka::Duration period) -> franka::JointPositions {
                         
+                        // Cache complete robot state for status/state queries
+                        // (libfranka doesn't allow readOnce() during control loop)
+                        {
+                            std::lock_guard<std::mutex> lock(cached_robot_state_mutex_);
+                            cached_robot_state_ = state;
+                            has_cached_robot_state_.store(true);
+                        }
+                        
                         // Check for stop request
                         if (motion_stop_requested_.load()) {
                             throw franka::CommandException("Motion stopped by user");
@@ -172,8 +180,16 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                     size_t total_points = trajectory.size();
                     
                     auto control_callback = [this, &trajectory, &time_ms, total_points, &start_time, timeout](
-                        const franka::RobotState& /*state*/,
+                        const franka::RobotState& state,
                         franka::Duration period) -> franka::JointPositions {
+                        
+                        // Cache complete robot state for status/state queries
+                        // (libfranka doesn't allow readOnce() during control loop)
+                        {
+                            std::lock_guard<std::mutex> lock(cached_robot_state_mutex_);
+                            cached_robot_state_ = state;
+                            has_cached_robot_state_.store(true);
+                        }
                         
                         // Check for stop request
                         if (motion_stop_requested_.load()) {
@@ -272,29 +288,44 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
 // ============================================================================
 
 void FrankaRobotRPCServiceImpl::fillMotionAsyncStatus(MotionAsyncStatus::Builder& status) {
-    // Get current robot state
-    if (robot_) {
+    auto q = status.initQ(7);
+    auto dq = status.initDq(7);
+    
+    auto cmd_status = motion_command_status_.load();
+    
+    // When motion is busy, use cached state from control callback
+    // (libfranka doesn't allow readOnce() during control loop)
+    if (cmd_status == MotionCommandStatus::BUSY) {
+        if (has_cached_robot_state_.load()) {
+            std::lock_guard<std::mutex> lock(cached_robot_state_mutex_);
+            for (size_t i = 0; i < 7; ++i) {
+                q.set(i, cached_robot_state_.q[i]);
+                dq.set(i, cached_robot_state_.dq[i]);
+            }
+        } else {
+            // Motion just started, control loop hasn't cached state yet
+            // Return zeros - cached state will be available within 1ms
+            for (size_t i = 0; i < 7; ++i) {
+                q.set(i, 0.0);
+                dq.set(i, 0.0);
+            }
+        }
+    } else if (robot_) {
+        // No motion in progress - safe to read directly
         try {
             franka::RobotState rs = robot_->readOnce();
-            auto q = status.initQ(7);
-            auto dq = status.initDq(7);
             for (size_t i = 0; i < 7; ++i) {
                 q.set(i, rs.q[i]);
                 dq.set(i, rs.dq[i]);
             }
         } catch (const franka::Exception& e) {
             KJ_LOG(WARNING, "Failed to read robot state for motion status", e.what());
-            // Initialize with zeros
-            auto q = status.initQ(7);
-            auto dq = status.initDq(7);
             for (size_t i = 0; i < 7; ++i) {
                 q.set(i, 0.0);
                 dq.set(i, 0.0);
             }
         }
     } else {
-        auto q = status.initQ(7);
-        auto dq = status.initDq(7);
         for (size_t i = 0; i < 7; ++i) {
             q.set(i, 0.0);
             dq.set(i, 0.0);

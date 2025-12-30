@@ -29,33 +29,56 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::getJointPoses(
         std::array<std::array<double, 16>, 10> frame_poses{};
         bool success = false;
 
-        try {
-            robot_->read([&](const franka::RobotState& robot_state) {
-                if (robot_state.q.empty()) {
-                    return false;  // Will throw appropriate error after read
-                }
-
-                // Calculate poses for valid frames only
-                for (size_t i = 0; i < num_frames && i < 10; i++) {
-                    try {
-                        frame_poses[i] = model_->pose(franka::Frame(i), robot_state);
-                    } catch (const franka::Exception& e) {
-                        // Log error but continue with remaining frames
-                        std::cerr << "Warning: Failed to calculate pose for frame " << i 
-                                << ": " << e.what() << std::endl;
-                        // Fill with identity matrix
-                        frame_poses[i].fill(0.0);
-                        for (size_t j = 0; j < 4; j++) {
-                            frame_poses[i][j * 4 + j] = 1.0;
-                        }
+        // Lambda to calculate frame poses from robot state
+        auto calculateFramePoses = [&](const franka::RobotState& robot_state) {
+            for (size_t i = 0; i < num_frames && i < 10; i++) {
+                try {
+                    frame_poses[i] = model_->pose(franka::Frame(i), robot_state);
+                } catch (const franka::Exception& e) {
+                    // Log error but continue with remaining frames
+                    std::cerr << "Warning: Failed to calculate pose for frame " << i 
+                            << ": " << e.what() << std::endl;
+                    // Fill with identity matrix
+                    frame_poses[i].fill(0.0);
+                    for (size_t j = 0; j < 4; j++) {
+                        frame_poses[i][j * 4 + j] = 1.0;
                     }
                 }
-                
+            }
+            success = true;
+        };
+
+        // When motion is busy, use cached state from control callback
+        // (libfranka doesn't allow read() during control loop)
+        if (motion_command_status_.load() == MotionCommandStatus::BUSY) {
+            if (has_cached_robot_state_.load()) {
+                std::lock_guard<std::mutex> lock(cached_robot_state_mutex_);
+                calculateFramePoses(cached_robot_state_);
+            }
+            // If no cached state yet (motion just started), return identity poses
+            // Cached state will be available within 1ms once control loop starts
+            if (!success) {
+                for (size_t i = 0; i < num_frames; i++) {
+                    frame_poses[i].fill(0.0);
+                    for (size_t j = 0; j < 4; j++) {
+                        frame_poses[i][j * 4 + j] = 1.0;
+                    }
+                }
                 success = true;
-                return false;
-            });
-        } catch (const franka::Exception& e) {
-            KJ_FAIL_REQUIRE("Failed to read robot state", e.what());
+            }
+        } else {
+            // No motion in progress - safe to read directly
+            try {
+                robot_->read([&](const franka::RobotState& robot_state) {
+                    if (robot_state.q.empty()) {
+                        return false;  // Will throw appropriate error after read
+                    }
+                    calculateFramePoses(robot_state);
+                    return false;
+                });
+            } catch (const franka::Exception& e) {
+                KJ_FAIL_REQUIRE("Failed to read robot state", e.what());
+            }
         }
 
         if (!success) {

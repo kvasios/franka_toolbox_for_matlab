@@ -3,17 +3,9 @@
 #include <franka/robot.h>
 #include <sstream>
 
-kj::Promise<void> FrankaRobotRPCServiceImpl::getRobotState(
-    capnp::CallContext<GetRobotStateParams, GetRobotStateResults> context) {
-    
-    if (!robot_) {
-        KJ_FAIL_REQUIRE("Robot not initialized");
-    }
-
-    auto results = context.getResults();
-    auto state = results.initState();
-
-    robot_->read([&](const franka::RobotState& robot_state) {
+namespace {
+    // Helper to fill RobotState capnp builder from franka::RobotState
+    void fillRobotStateFromFranka(RobotState::Builder& state, const franka::RobotState& robot_state) {
         // Transform matrices (4x4)
         {
             auto oTEe = state.initOTEe(16);
@@ -152,9 +144,36 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::getRobotState(
         state.setLastMotionErrors(last_motion_errors_ss.str());
 
         state.setControlCommandSuccessRate(robot_state.control_command_success_rate);
+    }
+}  // namespace
 
+kj::Promise<void> FrankaRobotRPCServiceImpl::getRobotState(
+    capnp::CallContext<GetRobotStateParams, GetRobotStateResults> context) {
+    
+    if (!robot_) {
+        KJ_FAIL_REQUIRE("Robot not initialized");
+    }
+
+    auto results = context.getResults();
+    auto state = results.initState();
+
+    // When motion is busy, use cached state from control callback
+    // (libfranka doesn't allow read() during control loop)
+    if (motion_command_status_.load() == MotionCommandStatus::BUSY) {
+        if (has_cached_robot_state_.load()) {
+            std::lock_guard<std::mutex> lock(cached_robot_state_mutex_);
+            fillRobotStateFromFranka(state, cached_robot_state_);
+        }
+        // If no cached state yet (motion just started), return empty/default state
+        // Cached state will be available within 1ms once control loop starts
+        return kj::READY_NOW;
+    }
+
+    // No motion in progress - safe to read directly
+    robot_->read([&](const franka::RobotState& robot_state) {
+        fillRobotStateFromFranka(state, robot_state);
         return false;  // Stop reading after one state
     });
 
     return kj::READY_NOW;
-} 
+}
