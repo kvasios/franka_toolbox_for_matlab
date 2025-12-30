@@ -125,6 +125,26 @@ struct MotionAsyncStatus {
     progress @5 :Float64;                   # Motion progress 0.0-1.0 (for trajectory)
 }
 
+# Single sample of motion recording (captured at 1kHz during motion)
+struct MotionRecordSample {
+    timestamp @0 :Float64;                  # Time in seconds from motion start
+    q @1 :List(Float64);                    # Joint positions (7 elements)
+    qD @2 :List(Float64);                   # Desired joint positions (7 elements)
+    dq @3 :List(Float64);                   # Joint velocities (7 elements)
+    dqD @4 :List(Float64);                  # Desired joint velocities (7 elements)
+    tauJ @5 :List(Float64);                 # Measured joint torques (7 elements)
+    tauExtHatFiltered @6 :List(Float64);    # External torques (7 elements)
+    oTEe @7 :List(Float64);                 # End-effector pose (16 elements, 4x4 matrix)
+}
+
+# Complete motion recording
+struct MotionRecording {
+    samples @0 :List(MotionRecordSample);   # Recorded samples (typically at 1kHz)
+    commandName @1 :Text;                   # Name of the command that was recorded
+    duration @2 :Float64;                   # Total motion duration in seconds
+    success @3 :Bool;                       # Whether motion completed successfully
+}
+
 interface RPCService {
     # Robot initialization and recovery
     initializeRobot @0 (ipAddress :Text) -> (result :Void);
@@ -142,10 +162,12 @@ interface RPCService {
 
     # Joint motion control (asynchronous - non-blocking)
     # These return immediately after starting the command. Use getMotionAsyncStatus to poll.
-    jointPointToPointMotionAsync @34 (targetConfiguration :List(Float64), speedFactor :Float64, timeout :Float64) -> (started :Bool);
-    jointTrajectoryMotionAsync @35 (trajectory :List(JointTrajectoryPoint), timeout :Float64) -> (started :Bool);
+    # Set record=true to enable 1kHz state recording during motion (retrieve with getMotionRecording)
+    jointPointToPointMotionAsync @34 (targetConfiguration :List(Float64), speedFactor :Float64, timeout :Float64, record :Bool) -> (started :Bool);
+    jointTrajectoryMotionAsync @35 (trajectory :List(JointTrajectoryPoint), timeout :Float64, record :Bool) -> (started :Bool);
     getMotionAsyncStatus @36 () -> (status :MotionAsyncStatus);
     motionWaitForCommand @37 (timeout :Float64) -> (status :MotionAsyncStatus);  # Block until command completes or timeout
+    getMotionRecording @38 () -> (recording :MotionRecording);  # Retrieve recorded motion data from last motion with record=true
     
     # Gripper control (synchronous - blocking)
     getGripperState @6 () -> (state :GripperState);

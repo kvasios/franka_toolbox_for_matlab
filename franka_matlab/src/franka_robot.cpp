@@ -334,8 +334,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     // Joint Point-to-Point Motion Async
     if (!strcmp("joint_point_to_point_motion_async", cmd)) {
-        if (nlhs != 1 || nrhs < 4 || nrhs > 5)
-            mexErrMsgTxt("Joint Point-to-Point Motion Async: One output and 3-4 inputs (handle, target_config, speed_factor, [timeout]) expected.");
+        if (nlhs != 1 || nrhs < 4 || nrhs > 6)
+            mexErrMsgTxt("Joint Point-to-Point Motion Async: One output and 3-5 inputs (handle, target_config, speed_factor, [timeout], [record]) expected.");
         
         if (!mxIsDouble(prhs[2]) || mxGetNumberOfElements(prhs[2]) != 7)
             mexErrMsgTxt("Target configuration must be a 7-element double array.");
@@ -351,8 +351,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
             }
             double speed_factor = mxGetScalar(prhs[3]);
             double timeout = (nrhs >= 5) ? mxGetScalar(prhs[4]) : 60.0;
+            bool record = (nrhs >= 6) ? mxIsLogicalScalarTrue(prhs[5]) : false;
             
-            bool started = franka_robot_instance->jointPointToPointMotionAsync(target_config, speed_factor, timeout);
+            bool started = franka_robot_instance->jointPointToPointMotionAsync(target_config, speed_factor, timeout, record);
             plhs[0] = mxCreateLogicalScalar(started);
         } catch (const kj::Exception& e) {
             mexErrMsgTxt(("Joint point-to-point motion async failed: " + std::string(e.getDescription().cStr())).c_str());
@@ -366,8 +367,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     // Joint Trajectory Motion Async
     if (!strcmp("joint_trajectory_motion_async", cmd)) {
-        if (nlhs != 1 || nrhs < 3 || nrhs > 4)
-            mexErrMsgTxt("Joint Trajectory Motion Async: One output and 2-3 inputs (handle, trajectory, [timeout]) expected.");
+        if (nlhs != 1 || nrhs < 3 || nrhs > 5)
+            mexErrMsgTxt("Joint Trajectory Motion Async: One output and 2-4 inputs (handle, trajectory, [timeout], [record]) expected.");
         
         if (!mxIsDouble(prhs[2]))
             mexErrMsgTxt("Trajectory must be a 7xN double array.");
@@ -387,8 +388,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
             }
             
             double timeout = (nrhs >= 4) ? mxGetScalar(prhs[3]) : 0.0;
+            bool record = (nrhs >= 5) ? mxIsLogicalScalarTrue(prhs[4]) : false;
 
-            bool started = franka_robot_instance->jointTrajectoryMotionAsync(positions, timeout);
+            bool started = franka_robot_instance->jointTrajectoryMotionAsync(positions, timeout, record);
             plhs[0] = mxCreateLogicalScalar(started);
         } catch (const kj::Exception& e) {
             mexErrMsgTxt(("Joint trajectory motion async failed: " + std::string(e.getDescription().cStr())).c_str());
@@ -518,6 +520,109 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
             mexErrMsgTxt(("Motion wait failed: " + std::string(e.what())).c_str());
         } catch (...) {
             mexErrMsgTxt("Failed to wait for motion command (unknown error)");
+        }
+        return;
+    }
+
+    // Get Motion Recording
+    if (!strcmp("get_motion_recording", cmd)) {
+        if (nlhs != 1 || nrhs != 2)
+            mexErrMsgTxt("Get Motion Recording: One output and one input (handle) expected.");
+        try {
+            auto recording = franka_robot_instance->getMotionRecording();
+            plhs[0] = mxCreateStructMatrix(1, 1, 0, nullptr);
+            
+            // Metadata
+            mxAddField(plhs[0], "command_name");
+            mxSetField(plhs[0], 0, "command_name", mxCreateString(recording.getCommandName().cStr()));
+            
+            mxAddField(plhs[0], "duration");
+            mxSetField(plhs[0], 0, "duration", mxCreateDoubleScalar(recording.getDuration()));
+            
+            mxAddField(plhs[0], "success");
+            mxSetField(plhs[0], 0, "success", mxCreateLogicalScalar(recording.getSuccess()));
+            
+            // Samples
+            auto samples = recording.getSamples();
+            size_t num_samples = samples.size();
+            
+            mxAddField(plhs[0], "num_samples");
+            mxSetField(plhs[0], 0, "num_samples", mxCreateDoubleScalar(static_cast<double>(num_samples)));
+            
+            // Create arrays for each field
+            mxArray* timestamp_arr = mxCreateDoubleMatrix(1, num_samples, mxREAL);
+            mxArray* q_arr = mxCreateDoubleMatrix(7, num_samples, mxREAL);
+            mxArray* q_d_arr = mxCreateDoubleMatrix(7, num_samples, mxREAL);
+            mxArray* dq_arr = mxCreateDoubleMatrix(7, num_samples, mxREAL);
+            mxArray* dq_d_arr = mxCreateDoubleMatrix(7, num_samples, mxREAL);
+            mxArray* tau_J_arr = mxCreateDoubleMatrix(7, num_samples, mxREAL);
+            mxArray* tau_ext_arr = mxCreateDoubleMatrix(7, num_samples, mxREAL);
+            mxArray* O_T_EE_arr = mxCreateDoubleMatrix(16, num_samples, mxREAL);
+            
+            double* timestamp_ptr = mxGetPr(timestamp_arr);
+            double* q_ptr = mxGetPr(q_arr);
+            double* q_d_ptr = mxGetPr(q_d_arr);
+            double* dq_ptr = mxGetPr(dq_arr);
+            double* dq_d_ptr = mxGetPr(dq_d_arr);
+            double* tau_J_ptr = mxGetPr(tau_J_arr);
+            double* tau_ext_ptr = mxGetPr(tau_ext_arr);
+            double* O_T_EE_ptr = mxGetPr(O_T_EE_arr);
+            
+            for (size_t i = 0; i < num_samples; ++i) {
+                auto sample = samples[i];
+                timestamp_ptr[i] = sample.getTimestamp();
+                
+                auto q = sample.getQ();
+                auto q_d = sample.getQD();
+                auto dq = sample.getDq();
+                auto dq_d = sample.getDqD();
+                auto tau_J = sample.getTauJ();
+                auto tau_ext = sample.getTauExtHatFiltered();
+                auto O_T_EE = sample.getOTEe();
+                
+                for (size_t j = 0; j < 7; ++j) {
+                    q_ptr[j + i * 7] = q[j];
+                    q_d_ptr[j + i * 7] = q_d[j];
+                    dq_ptr[j + i * 7] = dq[j];
+                    dq_d_ptr[j + i * 7] = dq_d[j];
+                    tau_J_ptr[j + i * 7] = tau_J[j];
+                    tau_ext_ptr[j + i * 7] = tau_ext[j];
+                }
+                for (size_t j = 0; j < 16; ++j) {
+                    O_T_EE_ptr[j + i * 16] = O_T_EE[j];
+                }
+            }
+            
+            mxAddField(plhs[0], "timestamp");
+            mxSetField(plhs[0], 0, "timestamp", timestamp_arr);
+            
+            mxAddField(plhs[0], "q");
+            mxSetField(plhs[0], 0, "q", q_arr);
+            
+            mxAddField(plhs[0], "q_d");
+            mxSetField(plhs[0], 0, "q_d", q_d_arr);
+            
+            mxAddField(plhs[0], "dq");
+            mxSetField(plhs[0], 0, "dq", dq_arr);
+            
+            mxAddField(plhs[0], "dq_d");
+            mxSetField(plhs[0], 0, "dq_d", dq_d_arr);
+            
+            mxAddField(plhs[0], "tau_J");
+            mxSetField(plhs[0], 0, "tau_J", tau_J_arr);
+            
+            mxAddField(plhs[0], "tau_ext_hat_filtered");
+            mxSetField(plhs[0], 0, "tau_ext_hat_filtered", tau_ext_arr);
+            
+            mxAddField(plhs[0], "O_T_EE");
+            mxSetField(plhs[0], 0, "O_T_EE", O_T_EE_arr);
+            
+        } catch (const kj::Exception& e) {
+            mexErrMsgTxt(("Get motion recording failed: " + std::string(e.getDescription().cStr())).c_str());
+        } catch (const std::exception& e) {
+            mexErrMsgTxt(("Get motion recording failed: " + std::string(e.what())).c_str());
+        } catch (...) {
+            mexErrMsgTxt("Failed to get motion recording (unknown error)");
         }
         return;
     }

@@ -56,6 +56,9 @@ public:
     kj::Promise<void> motionWaitForCommand(
         capnp::CallContext<MotionWaitForCommandParams, MotionWaitForCommandResults> context) override;
 
+    kj::Promise<void> getMotionRecording(
+        capnp::CallContext<GetMotionRecordingParams, GetMotionRecordingResults> context) override;
+
     kj::Promise<void> getGripperState(
         capnp::CallContext<GetGripperStateParams, GetGripperStateResults> context) override;
 
@@ -234,6 +237,7 @@ private:
     double motion_cmd_speed_factor_{0.5};
     std::vector<std::array<double, 7>> motion_cmd_trajectory_;
     double motion_cmd_timeout_{60.0};
+    bool motion_cmd_record_{false};
     
     // Motion command status (atomic for thread-safe reads)
     std::atomic<MotionCommandStatus> motion_command_status_{MotionCommandStatus::IDLE};
@@ -249,4 +253,25 @@ private:
     franka::RobotState cached_robot_state_{};
     std::atomic<bool> has_cached_robot_state_{false};
     mutable std::mutex cached_robot_state_mutex_;
+    
+    // Motion recording infrastructure
+    // When enabled, records robot state at 1kHz during motion execution
+    struct MotionRecordSample {
+        double timestamp;                      // Seconds from motion start
+        std::array<double, 7> q;               // Joint positions
+        std::array<double, 7> q_d;             // Desired joint positions
+        std::array<double, 7> dq;              // Joint velocities
+        std::array<double, 7> dq_d;            // Desired joint velocities
+        std::array<double, 7> tau_J;           // Measured joint torques
+        std::array<double, 7> tau_ext_hat_filtered;  // External torques
+        std::array<double, 16> O_T_EE;         // End-effector pose
+    };
+    
+    static constexpr size_t kMaxRecordingSamples = 120000;  // 2 minutes at 1kHz
+    std::vector<MotionRecordSample> motion_recording_;
+    std::atomic<bool> motion_recording_enabled_{false};
+    std::string motion_recording_command_name_;
+    double motion_recording_duration_{0.0};
+    bool motion_recording_success_{false};
+    mutable std::mutex motion_recording_mutex_;
 }; 

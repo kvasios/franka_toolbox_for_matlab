@@ -64,6 +64,7 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
         double speed_factor;
         std::vector<std::array<double, 7>> trajectory;
         double timeout;
+        bool record_enabled;
         
         // Wait for command
         {
@@ -86,6 +87,7 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
             speed_factor = motion_cmd_speed_factor_;
             trajectory = motion_cmd_trajectory_;
             timeout = motion_cmd_timeout_;
+            record_enabled = motion_cmd_record_;
             has_pending_motion_command_ = false;
         }
         
@@ -93,14 +95,27 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
         motion_stop_requested_.store(false);
         motion_progress_.store(0.0);
         
+        // Initialize recording if enabled
+        if (record_enabled) {
+            std::lock_guard<std::mutex> lock(motion_recording_mutex_);
+            motion_recording_.clear();
+            motion_recording_.reserve(std::min(kMaxRecordingSamples, 
+                static_cast<size_t>(timeout * 1000 + 1000)));  // Pre-allocate based on timeout
+            motion_recording_enabled_.store(true);
+            motion_recording_success_ = false;
+            motion_recording_duration_ = 0.0;
+        } else {
+            motion_recording_enabled_.store(false);
+        }
+        
         // Execute command
         motion_command_status_.store(MotionCommandStatus::BUSY);
         
         bool success = false;
         std::string error_msg;
+        auto start_time = std::chrono::steady_clock::now();
         
         try {
-            auto start_time = std::chrono::steady_clock::now();
             
             switch (cmd) {
                 case MotionCommand::PointToPoint: {
@@ -120,7 +135,7 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                     
                     // Wrap the motion generator to track progress and check for stop
                     auto control_callback = [this, &motion_generator, &start_time, timeout,
-                                            &q_start, &target_config, total_distance](
+                                            &q_start, &target_config, total_distance, record_enabled](
                         const franka::RobotState& state,
                         franka::Duration period) -> franka::JointPositions {
                         
@@ -132,14 +147,32 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                             has_cached_robot_state_.store(true);
                         }
                         
+                        // Record state if recording is enabled
+                        auto elapsed = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - start_time).count();
+                        if (record_enabled && motion_recording_enabled_.load()) {
+                            std::lock_guard<std::mutex> lock(motion_recording_mutex_);
+                            if (motion_recording_.size() < kMaxRecordingSamples) {
+                                MotionRecordSample sample;
+                                sample.timestamp = elapsed;
+                                std::copy(state.q.begin(), state.q.end(), sample.q.begin());
+                                std::copy(state.q_d.begin(), state.q_d.end(), sample.q_d.begin());
+                                std::copy(state.dq.begin(), state.dq.end(), sample.dq.begin());
+                                std::copy(state.dq_d.begin(), state.dq_d.end(), sample.dq_d.begin());
+                                std::copy(state.tau_J.begin(), state.tau_J.end(), sample.tau_J.begin());
+                                std::copy(state.tau_ext_hat_filtered.begin(), state.tau_ext_hat_filtered.end(), 
+                                          sample.tau_ext_hat_filtered.begin());
+                                std::copy(state.O_T_EE.begin(), state.O_T_EE.end(), sample.O_T_EE.begin());
+                                motion_recording_.push_back(sample);
+                            }
+                        }
+                        
                         // Check for stop request
                         if (motion_stop_requested_.load()) {
                             throw franka::CommandException("Motion stopped by user");
                         }
                         
                         // Check timeout
-                        auto elapsed = std::chrono::duration<double>(
-                            std::chrono::steady_clock::now() - start_time).count();
                         if (timeout > 0 && elapsed > timeout) {
                             throw franka::CommandException("Motion timed out");
                         }
@@ -179,7 +212,7 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                     uint64_t time_ms = 0;
                     size_t total_points = trajectory.size();
                     
-                    auto control_callback = [this, &trajectory, &time_ms, total_points, &start_time, timeout](
+                    auto control_callback = [this, &trajectory, &time_ms, total_points, &start_time, timeout, record_enabled](
                         const franka::RobotState& state,
                         franka::Duration period) -> franka::JointPositions {
                         
@@ -191,14 +224,32 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                             has_cached_robot_state_.store(true);
                         }
                         
+                        // Record state if recording is enabled
+                        auto elapsed = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - start_time).count();
+                        if (record_enabled && motion_recording_enabled_.load()) {
+                            std::lock_guard<std::mutex> lock(motion_recording_mutex_);
+                            if (motion_recording_.size() < kMaxRecordingSamples) {
+                                MotionRecordSample sample;
+                                sample.timestamp = elapsed;
+                                std::copy(state.q.begin(), state.q.end(), sample.q.begin());
+                                std::copy(state.q_d.begin(), state.q_d.end(), sample.q_d.begin());
+                                std::copy(state.dq.begin(), state.dq.end(), sample.dq.begin());
+                                std::copy(state.dq_d.begin(), state.dq_d.end(), sample.dq_d.begin());
+                                std::copy(state.tau_J.begin(), state.tau_J.end(), sample.tau_J.begin());
+                                std::copy(state.tau_ext_hat_filtered.begin(), state.tau_ext_hat_filtered.end(), 
+                                          sample.tau_ext_hat_filtered.begin());
+                                std::copy(state.O_T_EE.begin(), state.O_T_EE.end(), sample.O_T_EE.begin());
+                                motion_recording_.push_back(sample);
+                            }
+                        }
+                        
                         // Check for stop request
                         if (motion_stop_requested_.load()) {
                             throw franka::CommandException("Motion stopped by user");
                         }
                         
                         // Check timeout
-                        auto elapsed = std::chrono::duration<double>(
-                            std::chrono::steady_clock::now() - start_time).count();
                         if (timeout > 0 && elapsed > timeout) {
                             throw franka::CommandException("Motion timed out");
                         }
@@ -241,6 +292,15 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
                 KJ_LOG(INFO, "Motion async: Command succeeded in", elapsed, "seconds");
             }
             
+            // Finalize recording
+            if (record_enabled) {
+                std::lock_guard<std::mutex> lock(motion_recording_mutex_);
+                motion_recording_enabled_.store(false);
+                motion_recording_duration_ = elapsed;
+                motion_recording_success_ = success;
+                KJ_LOG(INFO, "Motion recording: Captured", motion_recording_.size(), "samples over", elapsed, "seconds");
+            }
+            
         } catch (const franka::CommandException& e) {
             std::string what = e.what();
             if (motion_stop_requested_.load() || what.find("stopped") != std::string::npos) {
@@ -276,6 +336,16 @@ void FrankaRobotRPCServiceImpl::motionWorkerLoop() {
         {
             std::lock_guard<std::mutex> lock(motion_status_mutex_);
             motion_error_message_ = error_msg;
+        }
+        
+        // Finalize recording on error (if not already finalized)
+        if (record_enabled && motion_recording_enabled_.load()) {
+            std::lock_guard<std::mutex> lock(motion_recording_mutex_);
+            motion_recording_enabled_.store(false);
+            auto end_time = std::chrono::steady_clock::now();
+            motion_recording_duration_ = std::chrono::duration<double>(end_time - start_time).count();
+            motion_recording_success_ = false;
+            KJ_LOG(INFO, "Motion recording: Captured", motion_recording_.size(), "samples (motion failed/stopped)");
         }
         
         // Notify waiting clients
@@ -359,6 +429,7 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::jointPointToPointMotionAsync(
     auto target_config = params.getTargetConfiguration();
     double speed_factor = params.getSpeedFactor();
     double timeout = params.getTimeout();
+    bool record = params.getRecord();
     
     if (target_config.size() != 7) {
         KJ_FAIL_REQUIRE("Target configuration must have exactly 7 joint angles");
@@ -395,11 +466,18 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::jointPointToPointMotionAsync(
             }
             motion_cmd_speed_factor_ = speed_factor;
             motion_cmd_timeout_ = timeout;
+            motion_cmd_record_ = record;
             has_pending_motion_command_ = true;
             
             // Mark as BUSY immediately when queueing
             motion_command_status_.store(MotionCommandStatus::BUSY);
             motion_progress_.store(0.0);
+            
+            // Set recording command name
+            {
+                std::lock_guard<std::mutex> rec_lock(motion_recording_mutex_);
+                motion_recording_command_name_ = "joint_point_to_point_motion";
+            }
             
             {
                 std::lock_guard<std::mutex> status_lock(motion_status_mutex_);
@@ -411,7 +489,7 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::jointPointToPointMotionAsync(
         // Notify worker thread
         motion_cv_.notify_one();
         
-        KJ_LOG(INFO, "Motion async: Point-to-point command queued", speed_factor, timeout);
+        KJ_LOG(INFO, "Motion async: Point-to-point command queued", speed_factor, timeout, record ? "recording" : "");
         
         context.getResults().setStarted(true);
 
@@ -433,6 +511,7 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::jointTrajectoryMotionAsync(
     auto params = context.getParams();
     auto trajectory = params.getTrajectory();
     double timeout = params.getTimeout();
+    bool record = params.getRecord();
     
     if (trajectory.size() == 0) {
         KJ_FAIL_REQUIRE("Trajectory cannot be empty");
@@ -476,11 +555,18 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::jointTrajectoryMotionAsync(
             pending_motion_command_ = MotionCommand::Trajectory;
             motion_cmd_trajectory_ = std::move(positions);
             motion_cmd_timeout_ = timeout;
+            motion_cmd_record_ = record;
             has_pending_motion_command_ = true;
             
             // Mark as BUSY immediately when queueing
             motion_command_status_.store(MotionCommandStatus::BUSY);
             motion_progress_.store(0.0);
+            
+            // Set recording command name
+            {
+                std::lock_guard<std::mutex> rec_lock(motion_recording_mutex_);
+                motion_recording_command_name_ = "joint_trajectory_motion";
+            }
             
             {
                 std::lock_guard<std::mutex> status_lock(motion_status_mutex_);
@@ -492,7 +578,7 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::jointTrajectoryMotionAsync(
         // Notify worker thread
         motion_cv_.notify_one();
         
-        KJ_LOG(INFO, "Motion async: Trajectory command queued", trajectory.size(), timeout);
+        KJ_LOG(INFO, "Motion async: Trajectory command queued", trajectory.size(), timeout, record ? "recording" : "");
         
         context.getResults().setStarted(true);
 
@@ -565,6 +651,52 @@ kj::Promise<void> FrankaRobotRPCServiceImpl::motionWaitForCommand(
         throw;
     }
 
+    return kj::READY_NOW;
+}
+
+kj::Promise<void> FrankaRobotRPCServiceImpl::getMotionRecording(
+    capnp::CallContext<GetMotionRecordingParams, GetMotionRecordingResults> context) {
+    
+    auto results = context.getResults();
+    auto recording = results.initRecording();
+    
+    std::lock_guard<std::mutex> lock(motion_recording_mutex_);
+    
+    // Initialize samples
+    auto samples = recording.initSamples(motion_recording_.size());
+    for (size_t i = 0; i < motion_recording_.size(); ++i) {
+        const auto& src = motion_recording_[i];
+        auto dst = samples[i];
+        
+        dst.setTimestamp(src.timestamp);
+        
+        auto q = dst.initQ(7);
+        auto q_d = dst.initQD(7);
+        auto dq = dst.initDq(7);
+        auto dq_d = dst.initDqD(7);
+        auto tau_J = dst.initTauJ(7);
+        auto tau_ext = dst.initTauExtHatFiltered(7);
+        auto O_T_EE = dst.initOTEe(16);
+        
+        for (size_t j = 0; j < 7; ++j) {
+            q.set(j, src.q[j]);
+            q_d.set(j, src.q_d[j]);
+            dq.set(j, src.dq[j]);
+            dq_d.set(j, src.dq_d[j]);
+            tau_J.set(j, src.tau_J[j]);
+            tau_ext.set(j, src.tau_ext_hat_filtered[j]);
+        }
+        for (size_t j = 0; j < 16; ++j) {
+            O_T_EE.set(j, src.O_T_EE[j]);
+        }
+    }
+    
+    recording.setCommandName(motion_recording_command_name_);
+    recording.setDuration(motion_recording_duration_);
+    recording.setSuccess(motion_recording_success_);
+    
+    KJ_LOG(INFO, "Motion recording retrieved:", motion_recording_.size(), "samples");
+    
     return kj::READY_NOW;
 }
 

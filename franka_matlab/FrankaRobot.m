@@ -17,6 +17,11 @@ classdef FrankaRobot < handle
     %       motion_isBusy()  - Check if motion is in progress
     %       stop()           - Stop current motion
     %
+    %   Motion recording (async only):
+    %       robot.joint_point_to_point_motion(target, 0.5, 'Async', true, 'Record', true)
+    %       robot.motion_wait();
+    %       rec = robot.read_recording();  % Get 1kHz recorded state data
+    %
     %   Example (single robot):
     %       robot = FrankaRobot('RobotIP', '172.16.0.2');
     %
@@ -170,6 +175,7 @@ classdef FrankaRobot < handle
             %   result = robot.joint_point_to_point_motion(target, speed_factor)
             %   result = robot.joint_point_to_point_motion(target, speed_factor, 'Async', true)
             %   result = robot.joint_point_to_point_motion(target, speed_factor, 'Async', true, 'Timeout', 60)
+            %   result = robot.joint_point_to_point_motion(target, speed_factor, 'Async', true, 'Record', true)
             %
             % Inputs:
             %   joints_target_configuration - 7-element target joint positions
@@ -178,6 +184,8 @@ classdef FrankaRobot < handle
             % Name-Value Arguments:
             %   'Async'   - If true, return immediately (default: false)
             %   'Timeout' - Max time for async command in seconds (default: 60)
+            %   'Record'  - If true, record robot state at 1kHz during motion (default: false)
+            %               Retrieve recording after motion with read_recording()
             %
             % Returns:
             %   result - If sync: true if motion succeeded
@@ -194,12 +202,13 @@ classdef FrankaRobot < handle
             p = inputParser;
             addParameter(p, 'Async', false, @islogical);
             addParameter(p, 'Timeout', 60.0, @isnumeric);
+            addParameter(p, 'Record', false, @islogical);
             parse(p, varargin{:});
             
             if p.Results.Async
                 result = obj.executeWithReconnect(@() ...
                     franka_robot('joint_point_to_point_motion_async', obj.frankaRobotHandle, ...
-                        joints_target_configuration, speed_factor, p.Results.Timeout));
+                        joints_target_configuration, speed_factor, p.Results.Timeout, p.Results.Record));
             else
                 result = obj.executeWithReconnect(@() ...
                     franka_robot('joint_point_to_point_motion', obj.frankaRobotHandle, ...
@@ -214,6 +223,7 @@ classdef FrankaRobot < handle
             %   result = robot.joint_trajectory_motion(positions)
             %   result = robot.joint_trajectory_motion(positions, 'Async', true)
             %   result = robot.joint_trajectory_motion(positions, 'Async', true, 'Timeout', 120)
+            %   result = robot.joint_trajectory_motion(positions, 'Async', true, 'Record', true)
             %
             % Inputs:
             %   positions - 7xN array of joint positions (1ms per column)
@@ -221,6 +231,8 @@ classdef FrankaRobot < handle
             % Name-Value Arguments:
             %   'Async'   - If true, return immediately (default: false)
             %   'Timeout' - Max time for async command in seconds (default: auto)
+            %   'Record'  - If true, record robot state at 1kHz during motion (default: false)
+            %               Retrieve recording after motion with read_recording()
             %
             % Returns:
             %   result - If sync: true if motion succeeded
@@ -234,12 +246,13 @@ classdef FrankaRobot < handle
             p = inputParser;
             addParameter(p, 'Async', false, @islogical);
             addParameter(p, 'Timeout', 0.0, @isnumeric);  % 0 = auto-calculate
+            addParameter(p, 'Record', false, @islogical);
             parse(p, varargin{:});
             
             if p.Results.Async
                 result = obj.executeWithReconnect(@() ...
                     franka_robot('joint_trajectory_motion_async', obj.frankaRobotHandle, ...
-                        positions, p.Results.Timeout));
+                        positions, p.Results.Timeout, p.Results.Record));
             else
                 result = obj.executeWithReconnect(@() ...
                     franka_robot('joint_trajectory_motion', obj.frankaRobotHandle, positions));
@@ -280,6 +293,35 @@ classdef FrankaRobot < handle
             %   busy - True if a motion is running
             s = obj.motion_status();
             busy = strcmp(s.command_status, 'busy');
+        end
+        
+        function recording = read_recording(obj)
+            % Retrieve recorded motion data from last motion with 'Record', true
+            %
+            % Returns a struct with:
+            %   command_name          - Name of the motion command
+            %   duration              - Motion duration in seconds
+            %   success               - Whether motion completed successfully
+            %   num_samples           - Number of recorded samples
+            %   timestamp             - 1xN array of timestamps (seconds from start)
+            %   q                     - 7xN array of joint positions
+            %   q_d                   - 7xN array of desired joint positions
+            %   dq                    - 7xN array of joint velocities
+            %   dq_d                  - 7xN array of desired joint velocities
+            %   tau_J                 - 7xN array of measured joint torques
+            %   tau_ext_hat_filtered  - 7xN array of external torques
+            %   O_T_EE                - 16xN array of end-effector poses (column-major 4x4)
+            %
+            % Example:
+            %   robot.joint_point_to_point_motion(target, 0.5, 'Async', true, 'Record', true);
+            %   robot.motion_wait();
+            %   rec = robot.read_recording();
+            %   plot(rec.timestamp, rec.q');
+            %   title('Joint positions over time');
+            %   xlabel('Time (s)'); ylabel('Position (rad)');
+            obj.checkHandle();
+            recording = obj.executeWithReconnect(@() ...
+                franka_robot('get_motion_recording', obj.frankaRobotHandle));
         end
 
         function result = setCollisionThresholds(obj, thresholds)

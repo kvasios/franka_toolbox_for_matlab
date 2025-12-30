@@ -118,7 +118,8 @@ public:
 
     // Async motion methods
     bool jointPointToPointMotionAsync(const std::array<double, 7>& target_config, 
-                                      double speed_factor, double timeout = 60.0) {
+                                      double speed_factor, double timeout = 60.0,
+                                      bool record = false) {
         auto request = rpcInterface.jointPointToPointMotionAsyncRequest();
         auto target = request.initTargetConfiguration(7);
         for (size_t i = 0; i < 7; i++) {
@@ -126,6 +127,7 @@ public:
         }
         request.setSpeedFactor(speed_factor);
         request.setTimeout(timeout);
+        request.setRecord(record);
 
         try {
             auto response = request.send().wait(client.getWaitScope());
@@ -136,7 +138,7 @@ public:
     }
 
     bool jointTrajectoryMotionAsync(const std::vector<std::array<double, 7>>& positions,
-                                    double timeout = 0.0) {
+                                    double timeout = 0.0, bool record = false) {
         auto request = rpcInterface.jointTrajectoryMotionAsyncRequest();
         auto trajectory = request.initTrajectory(positions.size());
 
@@ -148,10 +150,21 @@ public:
             }
         }
         request.setTimeout(timeout);
+        request.setRecord(record);
 
         try {
             auto response = request.send().wait(client.getWaitScope());
             return response.getStarted();
+        } catch (const kj::Exception&) {
+            throw;
+        }
+    }
+
+    MotionRecording::Reader getMotionRecording() {
+        auto request = rpcInterface.getMotionRecordingRequest();
+        try {
+            auto response = request.send().wait(client.getWaitScope());
+            return response.getRecording();
         } catch (const kj::Exception&) {
             throw;
         }

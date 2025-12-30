@@ -100,6 +100,9 @@ Joint Point to Point Motion
     fr.joint_point_to_point_motion(joints_target_configuration, speed_factor, 'Async', true);
     fr.joint_point_to_point_motion(joints_target_configuration, speed_factor, 'Async', true, 'Timeout', 60);
 
+    % With motion recording (async only)
+    fr.joint_point_to_point_motion(joints_target_configuration, speed_factor, 'Async', true, 'Record', true);
+
 Moves the robot into a desired joint configuration.
 
 Parameters:
@@ -109,6 +112,7 @@ Parameters:
 Name-Value Arguments:
     - 'Async': If true, return immediately without waiting (default: false).
     - 'Timeout': Maximum time for async command in seconds (default: 60).
+    - 'Record': If true, record robot state at 1kHz during motion (default: false). Retrieve with ``read_recording()``.
 
 Returns:
     - Sync mode: true if motion was successful, false otherwise.
@@ -126,6 +130,9 @@ Joint Trajectory Motion
     fr.joint_trajectory_motion(positions, 'Async', true);
     fr.joint_trajectory_motion(positions, 'Async', true, 'Timeout', 120);
 
+    % With motion recording (async only)
+    fr.joint_trajectory_motion(positions, 'Async', true, 'Record', true);
+
 Moves the robot based on the given desired joint trajectory.
 
 Parameters:
@@ -134,6 +141,7 @@ Parameters:
 Name-Value Arguments:
     - 'Async': If true, return immediately without waiting (default: false).
     - 'Timeout': Maximum time for async command in seconds (default: auto-calculated).
+    - 'Record': If true, record robot state at 1kHz during motion (default: false). Retrieve with ``read_recording()``.
 
 Returns:
     - Sync mode: true if motion was successful, false otherwise.
@@ -183,6 +191,29 @@ Check if Motion Busy
 
 Returns true if a motion command is currently in progress.
 
+Read Motion Recording
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: matlab
+
+    recording = fr.read_recording();
+
+Retrieves recorded motion data from the last motion executed with ``'Record', true``.
+
+Returns a struct with:
+    - ``command_name``: Name of the motion command that was recorded
+    - ``duration``: Total motion duration in seconds
+    - ``success``: Whether the motion completed successfully
+    - ``num_samples``: Number of recorded samples (typically 1000/sec)
+    - ``timestamp``: 1xN array of timestamps (seconds from motion start)
+    - ``q``: 7xN array of actual joint positions (rad)
+    - ``q_d``: 7xN array of desired joint positions (rad)
+    - ``dq``: 7xN array of actual joint velocities (rad/s)
+    - ``dq_d``: 7xN array of desired joint velocities (rad/s)
+    - ``tau_J``: 7xN array of measured joint torques (Nm)
+    - ``tau_ext_hat_filtered``: 7xN array of external torques (Nm)
+    - ``O_T_EE``: 16xN array of end-effector poses (column-major 4x4 matrices)
+
 **Async Motion Examples**
 
 .. code-block:: matlab
@@ -208,6 +239,30 @@ Returns true if a motion command is currently in progress.
     fr.joint_point_to_point_motion(q_target, 0.1, 'Async', true);
     pause(1);
     fr.stop();  % Interrupt the motion
+
+    % Example: Record motion data for analysis
+    fr.joint_point_to_point_motion(q_target, 0.5, 'Async', true, 'Record', true);
+    fr.motion_wait();
+    rec = fr.read_recording();
+    
+    % Plot joint positions over time
+    figure;
+    subplot(2,2,1);
+    plot(rec.timestamp, rec.q');
+    title('Joint Positions'); xlabel('Time (s)'); ylabel('rad');
+    legend('q1','q2','q3','q4','q5','q6','q7');
+    
+    subplot(2,2,2);
+    plot(rec.timestamp, rec.dq');
+    title('Joint Velocities'); xlabel('Time (s)'); ylabel('rad/s');
+    
+    subplot(2,2,3);
+    plot(rec.timestamp, rec.tau_J');
+    title('Measured Torques'); xlabel('Time (s)'); ylabel('Nm');
+    
+    subplot(2,2,4);
+    plot(rec.timestamp, rec.tau_ext_hat_filtered');
+    title('External Torques'); xlabel('Time (s)'); ylabel('Nm');
 
 Collision Thresholds
 ^^^^^^^^^^^^^^^^^^^^
