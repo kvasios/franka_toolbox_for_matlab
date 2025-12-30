@@ -160,11 +160,67 @@ public:
         }
     }
 
-    MotionRecording::Reader getMotionRecording() {
+    // Struct to hold motion recording data (copied from Cap'n Proto response)
+    struct MotionRecordingData {
+        struct Sample {
+            double timestamp;
+            std::array<double, 7> q;
+            std::array<double, 7> q_d;
+            std::array<double, 7> dq;
+            std::array<double, 7> dq_d;
+            std::array<double, 7> tau_J;
+            std::array<double, 7> tau_ext_hat_filtered;
+            std::array<double, 16> O_T_EE;
+        };
+        std::string command_name;
+        double duration;
+        bool success;
+        std::vector<Sample> samples;
+    };
+
+    MotionRecordingData getMotionRecording() {
         auto request = rpcInterface.getMotionRecordingRequest();
         try {
             auto response = request.send().wait(client.getWaitScope());
-            return response.getRecording();
+            auto recording = response.getRecording();
+            
+            // Copy all data to native C++ types before response goes out of scope
+            MotionRecordingData result;
+            result.command_name = recording.getCommandName().cStr();
+            result.duration = recording.getDuration();
+            result.success = recording.getSuccess();
+            
+            auto samples = recording.getSamples();
+            result.samples.reserve(samples.size());
+            
+            for (const auto& sample : samples) {
+                MotionRecordingData::Sample s;
+                s.timestamp = sample.getTimestamp();
+                
+                auto q = sample.getQ();
+                auto q_d = sample.getQD();
+                auto dq = sample.getDq();
+                auto dq_d = sample.getDqD();
+                auto tau_J = sample.getTauJ();
+                auto tau_ext = sample.getTauExtHatFiltered();
+                auto O_T_EE = sample.getOTEe();
+                
+                for (size_t j = 0; j < 7; ++j) {
+                    s.q[j] = q[j];
+                    s.q_d[j] = q_d[j];
+                    s.dq[j] = dq[j];
+                    s.dq_d[j] = dq_d[j];
+                    s.tau_J[j] = tau_J[j];
+                    s.tau_ext_hat_filtered[j] = tau_ext[j];
+                }
+                for (size_t j = 0; j < 16; ++j) {
+                    s.O_T_EE[j] = O_T_EE[j];
+                }
+                
+                result.samples.push_back(s);
+            }
+            
+            return result;
         } catch (const kj::Exception&) {
             throw;
         }

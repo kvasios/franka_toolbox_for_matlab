@@ -534,17 +534,16 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
             
             // Metadata
             mxAddField(plhs[0], "command_name");
-            mxSetField(plhs[0], 0, "command_name", mxCreateString(recording.getCommandName().cStr()));
+            mxSetField(plhs[0], 0, "command_name", mxCreateString(recording.command_name.c_str()));
             
             mxAddField(plhs[0], "duration");
-            mxSetField(plhs[0], 0, "duration", mxCreateDoubleScalar(recording.getDuration()));
+            mxSetField(plhs[0], 0, "duration", mxCreateDoubleScalar(recording.duration));
             
             mxAddField(plhs[0], "success");
-            mxSetField(plhs[0], 0, "success", mxCreateLogicalScalar(recording.getSuccess()));
+            mxSetField(plhs[0], 0, "success", mxCreateLogicalScalar(recording.success));
             
             // Samples
-            auto samples = recording.getSamples();
-            size_t num_samples = samples.size();
+            size_t num_samples = recording.samples.size();
             
             mxAddField(plhs[0], "num_samples");
             mxSetField(plhs[0], 0, "num_samples", mxCreateDoubleScalar(static_cast<double>(num_samples)));
@@ -569,27 +568,19 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
             double* O_T_EE_ptr = mxGetPr(O_T_EE_arr);
             
             for (size_t i = 0; i < num_samples; ++i) {
-                auto sample = samples[i];
-                timestamp_ptr[i] = sample.getTimestamp();
-                
-                auto q = sample.getQ();
-                auto q_d = sample.getQD();
-                auto dq = sample.getDq();
-                auto dq_d = sample.getDqD();
-                auto tau_J = sample.getTauJ();
-                auto tau_ext = sample.getTauExtHatFiltered();
-                auto O_T_EE = sample.getOTEe();
+                const auto& sample = recording.samples[i];
+                timestamp_ptr[i] = sample.timestamp;
                 
                 for (size_t j = 0; j < 7; ++j) {
-                    q_ptr[j + i * 7] = q[j];
-                    q_d_ptr[j + i * 7] = q_d[j];
-                    dq_ptr[j + i * 7] = dq[j];
-                    dq_d_ptr[j + i * 7] = dq_d[j];
-                    tau_J_ptr[j + i * 7] = tau_J[j];
-                    tau_ext_ptr[j + i * 7] = tau_ext[j];
+                    q_ptr[j + i * 7] = sample.q[j];
+                    q_d_ptr[j + i * 7] = sample.q_d[j];
+                    dq_ptr[j + i * 7] = sample.dq[j];
+                    dq_d_ptr[j + i * 7] = sample.dq_d[j];
+                    tau_J_ptr[j + i * 7] = sample.tau_J[j];
+                    tau_ext_ptr[j + i * 7] = sample.tau_ext_hat_filtered[j];
                 }
                 for (size_t j = 0; j < 16; ++j) {
-                    O_T_EE_ptr[j + i * 16] = O_T_EE[j];
+                    O_T_EE_ptr[j + i * 16] = sample.O_T_EE[j];
                 }
             }
             
